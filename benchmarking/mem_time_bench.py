@@ -1,12 +1,13 @@
 import time
 import tracemalloc
+import numpy as np
 import pandas as pd
 import json 
 import scanpy as sc
 from spectra import spectra as spc
 
 # user-defined parameters
-num_iters = 5
+num_iters = 3
 root_dir = "C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/"
 save_dir = root_dir + "benchmarks/"
 cell_type_key = "annotation_SPADE_1"
@@ -14,7 +15,7 @@ cell_type_key = "annotation_SPADE_1"
 
 
 # load gene set
-with open("spectra/annotations_2.json", "rb") as file:
+with open(root_dir + "spectra/annotations_2.json", "rb") as file:
     annotations = json.load(file)
 
 # load data
@@ -33,6 +34,9 @@ benchmarks['iter'] = list(range(num_iters))
 
 
 for iter in range(num_iters):
+
+    print(f"Starting iteration {iter}")
+
     # load data
     adata = sc.read_h5ad(root_dir + "bassez_data.h5ad")
 
