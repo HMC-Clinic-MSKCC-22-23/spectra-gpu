@@ -28,7 +28,7 @@ for cell_type in adata.obs[cell_type_key]:
 del adata
 
 # set up benchmarks
-benchmarks = pd.DataFrame(columns=['iter', 'wall_time', 'cpu_time', 'max_memory'])
+benchmarks = pd.DataFrame(columns=['Run', 'Wall Time', 'CPU Time', 'Max Memory'])
 benchmarks['iter'] = list(range(num_iters))
 
 
@@ -51,9 +51,9 @@ for iter in range(num_iters):
     elapsed_wall_time = time.time() - start_wall_time
     elapsed_cpu_time = time.process_time() - start_cpu_time
 
-    benchmarks.at[iter, 'wall_time'] = elapsed_wall_time
-    benchmarks.at[iter, 'cpu_time'] = elapsed_cpu_time
-    benchmarks.at[iter, 'max_memory'] = max_mem
+    benchmarks.at[iter, 'Wall Time'] = elapsed_wall_time
+    benchmarks.at[iter, 'CPU Time'] = elapsed_cpu_time
+    benchmarks.at[iter, 'Max Memory'] = max_mem
 
     pd.DataFrame(adata.obsm["SPECTRA_cell_scores"]).to_csv(save_dir + f"cell_scores_{iter}.csv", header=False, index=False)
     pd.DataFrame(adata.uns["SPECTRA_factors"]).to_csv(save_dir + f"factors_{iter}.csv", header=False, index=False)
