@@ -7,19 +7,21 @@ import scanpy as sc
 from spectra import spectra as spc
 
 # user-defined parameters
-num_iters = 3
+num_iters = 1
 root_dir = "C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/"
+root_dir = "/home/clinic/Documents/mskcc/"
 save_dir = root_dir + "benchmarks/"
+save_dir = root_dir
 cell_type_key = "annotation_SPADE_1"
 
 
 
 # load gene set
-with open(root_dir + "spectra/annotations_2.json", "rb") as file:
+with open(root_dir + "spectra-gpu/annotations.json", "rb") as file:
     annotations = json.load(file)
 
 # load data
-adata = sc.read_h5ad(root_dir + "bassez_data.h5ad")
+adata = sc.read_h5ad(root_dir + "new_data.h5ad")
 
 for cell_type in adata.obs[cell_type_key]:
     if cell_type not in annotations:
@@ -38,7 +40,7 @@ for iter in range(num_iters):
     print(f"Starting iteration {iter}")
 
     # load data
-    adata = sc.read_h5ad(root_dir + "bassez_data.h5ad")
+    adata = sc.read_h5ad(root_dir + "new_data.h5ad")
 
     start_wall_time = time.time()
     start_cpu_time = time.process_time()
