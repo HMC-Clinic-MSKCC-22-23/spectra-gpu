@@ -63,6 +63,23 @@ for iter in range(num_iters):
 
     pd.DataFrame(adata.obsm["SPECTRA_cell_scores"]).to_csv(save_dir + f"cell_scores_{iter}.csv", header=False, index=False)
     pd.DataFrame(adata.uns["SPECTRA_factors"]).to_csv(save_dir + f"factors_{iter}.csv", header=False, index=False)
+    
+    try:
+        pd.DataFrame(adata.uns["SPECTRA_maerks"]).to_csv(save_dir + f"markers_{iter}.csv", header=False, index=False)
 
+    except:
+        print("markers doesn't like dataframe (probably)")
 
+    try:
+        factorList = []
+        for i in range(len(adata.uns["SPECTRA_markers"])):
+            factorNames = ', '.join(adata.uns["SPECTRA_markers"][i][:len(adata.uns["SPECTRA_markers"][i])])
+            factorString = "Factor " + str(i) + ": " + factorNames
+            factorList.append(factorString)
+
+        pd.DataFrame(factorList).to_csv(save_dir + f"factor_names_{iter}.csv", header=False, index=True)
+    except:
+        print("you got funky types there bro fix 'em")
+
+    
 benchmarks.to_csv(save_dir + "benchmarks.csv", header=True, index = False)
