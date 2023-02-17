@@ -7,10 +7,10 @@ import scanpy as sc
 from spectra import spectra as spc
 
 # user-defined parameters
-num_iters = 1
-root_dir = "C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/"
+num_iters = 2
+# root_dir = "C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/"
 root_dir = "/home/clinic/Documents/mskcc/"
-save_dir = root_dir + "benchmarks/"
+# save_dir = root_dir + "benchmarks/"
 save_dir = root_dir
 cell_type_key = "annotation_SPADE_1"
 
@@ -80,6 +80,7 @@ for iter in range(num_iters):
         pd.DataFrame(factorList).to_csv(save_dir + f"factor_names_{iter}.csv", header=False, index=True)
     except:
         print("you got funky types there bro fix 'em")
+        
+benchmarks.to_csv(save_dir + "benchmarks.csv", header=True, index=False)
 
-    
-benchmarks.to_csv(save_dir + "benchmarks.csv", header=True, index = False)
+
