@@ -7,11 +7,18 @@ import scanpy as sc
 from spectra import spectra as spc
 
 # user-defined parameters
+<<<<<<< Updated upstream
 num_iters = 2
 # root_dir = "C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/"
 root_dir = "/home/clinic/Documents/mskcc/"
 # save_dir = root_dir + "benchmarks/"
 save_dir = root_dir
+=======
+num_iters = 5
+root_dir = "C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/"
+root_dir = "/home/clinic/Documents/mskcc/"
+save_dir = root_dir + "benchmarks/"
+>>>>>>> Stashed changes
 cell_type_key = "annotation_SPADE_1"
 
 
@@ -65,7 +72,7 @@ for iter in range(num_iters):
     pd.DataFrame(adata.uns["SPECTRA_factors"]).to_csv(save_dir + f"factors_{iter}.csv", header=False, index=False)
     
     try:
-        pd.DataFrame(adata.uns["SPECTRA_maerks"]).to_csv(save_dir + f"markers_{iter}.csv", header=False, index=False)
+        pd.DataFrame(adata.uns["SPECTRA_markers"]).to_csv(save_dir + f"markers_{iter}.csv", header=False, index=False)
 
     except:
         print("markers doesn't like dataframe (probably)")
