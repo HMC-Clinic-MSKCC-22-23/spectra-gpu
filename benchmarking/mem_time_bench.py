@@ -7,18 +7,13 @@ import scanpy as sc
 from spectra import spectra as spc
 
 # user-defined parameters
-<<<<<<< Updated upstream
-num_iters = 2
+num_iters = 3
 # root_dir = "C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/"
 root_dir = "/home/clinic/Documents/mskcc/"
 # save_dir = root_dir + "benchmarks/"
 save_dir = root_dir
-=======
-num_iters = 5
-root_dir = "C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/"
-root_dir = "/home/clinic/Documents/mskcc/"
-save_dir = root_dir + "benchmarks/"
->>>>>>> Stashed changes
+
+
 cell_type_key = "annotation_SPADE_1"
 
 
@@ -85,6 +80,7 @@ for iter in range(num_iters):
             factorList.append(factorString)
 
         pd.DataFrame(factorList).to_csv(save_dir + f"factor_names_{iter}.csv", header=False, index=True)
+        
     except:
         print("you got funky types there bro fix 'em")
         

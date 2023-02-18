@@ -50,5 +50,5 @@ model = spc.est_spectra(adata = adata, gene_set_dictionary = annotations,
                         num_epochs = 5000 #for demonstration purposes we will only run 2 epochs, we recommend 10,000 epochs
                        )
 
-pd.DataFrame(adata.obsm["SPECTRA_cell_scores"]).to_csv("cell_scores.csv", header=False, index=False)
-pd.DataFrame(adata.uns["SPECTRA_factors"]).to_csv("factors.csv", header=False, index=False)
+# pd.DataFrame(adata.obsm["SPECTRA_cell_scores"]).to_csv("cell_scores.csv", header=False, index=False)
+# pd.DataFrame(adata.uns["SPECTRA_factors"]).to_csv("factors.csv", header=False, index=False)
