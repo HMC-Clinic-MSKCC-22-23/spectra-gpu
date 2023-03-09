@@ -51,7 +51,7 @@ for iter in range(num_iters):
 
     model = spc.est_spectra(adata = adata, gene_set_dictionary = annotations, use_highly_variable = True,
                             cell_type_key = cell_type_key, use_weights = True, lam = 0.1, delta=0.001,
-                            kappa = 0.00001, rho = 0.00001, use_cell_types = True, n_top_vals = 25)
+                            kappa = 0.00001, rho = 0.00001, use_cell_types = True, n_top_vals = 200)
 
     (_, max_mem) = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -67,10 +67,10 @@ for iter in range(num_iters):
     pd.DataFrame(adata.uns["SPECTRA_factors"]).to_csv(save_dir + f"factors_{iter}.csv", header=False, index=False)
     
     try:
-        pd.DataFrame(adata.uns["SPECTRA_markers"]).to_csv(save_dir + f"markers_{iter}.csv", header=False, index=False)
+        pd.DataFrame(adata.uns["SPECTRA_gene_scalings"]).to_csv(save_dir + f"gene_scalings_{iter}.csv", header=False, index=False)
 
     except:
-        print("markers doesn't like dataframe (probably)")
+        print("this doesn't exist idk what you think you're doing")
 
     try:
         factorList = []
