@@ -10,11 +10,11 @@ library(tidyr)
 ```
 
 ```{r}
-factors_genes = read.csv("~/Documents/mskcc/milo_gene_loadings.csv", header = FALSE) %>%
+factors_genes = read.csv("C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/milo_gene_loadings.csv", header = FALSE) %>%
                   t() %>%
                   as.data.frame()
 
-factors_cells = read.csv("~/Documents/mskcc/milo_cell_scores.csv", header = FALSE)
+factors_cells = read.csv("C:/Users/Brian/OneDrive/Documents/2023Spring/Clinic/milo_cell_scores.csv", header = FALSE)
 
 factor_names = 1:80
 ```
