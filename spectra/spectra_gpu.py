@@ -92,6 +92,7 @@ Extensions:
 #debugging
 import pdb
 
+## we don't have to, but could consider reorganizing this to use lightning batching instead
 def batchify(to_batch, batch_size):
     """
     batches all iterables in to_batch in same random permutation 
@@ -112,7 +113,7 @@ def batchify(to_batch, batch_size):
         out[j].append(thing[i:])
     return out
 
-class SPECTRA(nn.Module): 
+class SPECTRA(nn.Module):  ## change here to inherit from lightning module
     """ 
     
     Parameters
@@ -214,7 +215,7 @@ class SPECTRA(nn.Module):
     def __init__(self, X, labels, adj_matrix, L, weights = None, lam = 10e-4, delta=0.1,kappa = 0.00001, rho = 0.00001, use_cell_types = True):
         super(SPECTRA, self).__init__()
 
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove device 
         #hyperparameters
         self.delta = delta 
         self.lam = lam 
@@ -250,8 +251,8 @@ class SPECTRA(nn.Module):
             else: 
                 lst_adj_matrix.append(torch.zeros((self.p, self.p)))
                 lst_adj_matrix1m.append(torch.zeros((self.p, self.p)))
-        self.adj_matrix = torch.stack(lst_adj_matrix).to(device) #(cell_types + 1, p, p )
-        self.adj_matrix_1m = torch.stack(lst_adj_matrix1m).to(device) #(cell_types + 1, p, p)
+        self.adj_matrix = torch.stack(lst_adj_matrix).to(device) #(cell_types + 1, p, p ) <- remove .to(device)
+        self.adj_matrix_1m = torch.stack(lst_adj_matrix1m).to(device) #(cell_types + 1, p, p) <- remove .to(device)
         
         if weights:
             for cell_type in ct_order:
@@ -261,16 +262,16 @@ class SPECTRA(nn.Module):
                     lst_weights.append(torch.zeros((self.p, self.p)))
         else:
             self.weights = self.adj_matrix      
-        self.weights = torch.stack(lst_weights).to(device)
+        self.weights = torch.stack(lst_weights).to(device) #.to(device)
         self.ct_order = ct_order
         self.L_tot = L_tot
         self.L_list = L_list 
         self.n_cell_typesp1 = len(ct_order)
         
         #just need to construct these masks once
-        self.alpha_mask = torch.zeros((self.n,self.L_tot)).to(device)
-        self.B_mask = torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)).to(device) #need to double check that this works
-        self.factor_to_celltype = torch.zeros((self.L_tot, self.n_cell_typesp1)).to(device)
+        self.alpha_mask = torch.zeros((self.n,self.L_tot)).to(device) # remove .to(device)
+        self.B_mask = torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)).to(device) #need to double check that this works <- remove .to(device)
+        self.factor_to_celltype = torch.zeros((self.L_tot, self.n_cell_typesp1)).to(device) # remove .to(device)
 
         self.theta = nn.Parameter(Normal(0.,1.).sample([self.p, self.L_tot]))
         self.eta = nn.Parameter(Normal(0.,1.).sample([self.L_tot, self.L_tot]))
@@ -284,9 +285,9 @@ class SPECTRA(nn.Module):
         if rho == None:
             self.rho = nn.Parameter(Normal(0.,1.).sample([self.n_cell_typesp1]))       
         if kappa != None: 
-            self.kappa = (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(kappa /(1-kappa)))).to(device)
+            self.kappa = (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(kappa /(1-kappa)))).to(device) # remove .to(device)
         if rho != None: 
-            self.rho =  (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(rho /(1-rho)))).to(device)
+            self.rho =  (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(rho /(1-rho)))).to(device) # remove .to(device)
         
         #make sure 
         if ct_order[0] != "global":
@@ -321,11 +322,11 @@ class SPECTRA(nn.Module):
                 else:
                     self.cell_type_counts.append(0)
         self.cell_type_counts = np.array(self.cell_type_counts)         
-        self.ct_vec =  torch.Tensor(self.cell_type_counts/float(self.n)).to(device)
+        self.ct_vec =  torch.Tensor(self.cell_type_counts/float(self.n)).to(device) # remove .to(device)
         
     
     def loss(self, X, alpha_mask, alpha, batch_size): 
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove
         assert(self.use_cell_types) #if this is False, fail because model has not been initialized to use cell types
         
         #convert inputs to torch.Tensors
@@ -377,7 +378,8 @@ class SPECTRA(nn.Module):
                     self.theta.data[:,self.start_pos[ct] + self.L[ct] - 1][self.adj_matrix[i].sum(axis = 1) == 0] = val
                     self.theta.data[:,self.start_pos[ct] + self.L[ct] - 1][self.adj_matrix[i].sum(axis = 1) != 0] = -val
             
-      
+
+## need to add class for lightning module
     
 
 class SPECTRA_Model:
@@ -514,11 +516,13 @@ class SPECTRA_Model:
         self.rho = None 
         self.kappa = None 
 
+    ## change this function to be compatible with lightning as a custom hook
+    ## aka this is mostly all the same, but move the optimizer and lr_scheduler into a function called configure_optimizers
     def train(self,X, labels = None, lr_schedule = [.5,.1,.01,.001,.0001], num_epochs = 100, batch_size = 1000, skip = 15, verbose = False): 
         opt = torch.optim.Adam(self.internal_model.parameters(), lr=lr_schedule[0])
         counter = 0
         last = np.inf
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove
         if (self.internal_model.use_cell_types == False):
             raise NotImplementedError("use_cell_types == False is not yet supported")
         for i in tqdm(range(num_epochs)):
@@ -529,11 +533,13 @@ class SPECTRA_Model:
 
             tot = 0 
             for j in range(len(X_b)):
-                opt.zero_grad()
-                loss = self.internal_model.loss(X_b[j].to(device), alpha_mask_b[j].to(device), alpha_b[j], batch_size) 
-                loss.backward()
-                opt.step()
-                tot += loss.item()
+                opt.zero_grad() ## remove
+                ## remove .to(device)
+                loss = self.internal_model.loss(X_b[j].to(device), alpha_mask_b[j].to(device) , alpha_b[j], batch_size) 
+                ## remove three lines below
+                loss.backward() 
+                opt.step() 
+                tot += loss.item() 
                 
                 if loss.item() >= last:
                     counter += 1
@@ -552,9 +558,12 @@ class SPECTRA_Model:
             self.__store_parameters(labels)
         else:
             self.__store_parameters_no_celltypes()
+    ## this prob needs to get changed to lightning object
+    ## the name can stay the same, it just becomes a call to the lightning obj
     def save(self, fp):
         torch.save(self.internal_model.state_dict(),fp)
   
+    ## same as above?
     def load(self,fp,labels = None):
         self.internal_model.load_state_dict(torch.load(fp))
         if self.use_cell_types:
@@ -797,7 +806,7 @@ def est_spectra(adata, gene_set_dictionary, L = None,use_highly_variable = True,
         raise NotImplementedError("use_cell_types == False is not supported yet")
 
     print("CUDA Available: ", torch.cuda.is_available())
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove this
 
     if L == None:
         init_flag = True
@@ -881,11 +890,11 @@ def est_spectra(adata, gene_set_dictionary, L = None,use_highly_variable = True,
         init_scores = None
     print("Initializing model...")
     spectra = SPECTRA_Model(X = X, labels = labels,  L = L, vocab = vocab, gs_dict = gene_set_dictionary, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
-    spectra.internal_model.to(device)
+    spectra.internal_model.to(device) ## remove "to(device)"
     print("CUDA memory: ", 1e-9*torch.cuda.memory_allocated(device=device))
     spectra.initialize(gene_set_dictionary, word2id, X, init_scores)
     print("Beginning training...")
-    spectra.train(X = X, labels = labels,**kwargs)
+    spectra.train(X = X, labels = labels,**kwargs) # change to call to lightning trainer
 
     adata.uns["SPECTRA_factors"] = spectra.factors
     adata.obsm["SPECTRA_cell_scores"] = spectra.cell_scores
