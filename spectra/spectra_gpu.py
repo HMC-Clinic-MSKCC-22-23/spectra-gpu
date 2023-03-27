@@ -12,6 +12,7 @@ import scipy
 import pandas as pd
 from pyvis.network import Network
 import random
+import lightning.pytorch as pl
 
 from torch.distributions.normal import Normal
 from torch.distributions.log_normal import LogNormal
@@ -113,6 +114,10 @@ def batchify(to_batch, batch_size):
         out[j].append(thing[i:])
     return out
 
+
+## we want to explore more about how to handle the "to(device) calls - doesn't seem like we can remove the explicit calls to to(device)
+## so we need to figure out how to make sure the devices gets handled correctly since we're not using the default methods for lightning
+## we also need to figure out where the lightning module needs to be initialized
 class SPECTRA(nn.Module):  ## change here to inherit from lightning module
     """ 
     
@@ -212,10 +217,12 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
 
     
     """
+    # possible that the non-parameter tensors that get initialized here need be turned into buffers
     def __init__(self, X, labels, adj_matrix, L, weights = None, lam = 10e-4, delta=0.1,kappa = 0.00001, rho = 0.00001, use_cell_types = True):
         super(SPECTRA, self).__init__()
 
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove device 
+
         #hyperparameters
         self.delta = delta 
         self.lam = lam 
@@ -264,7 +271,8 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
             self.weights = self.adj_matrix      
         self.weights = torch.stack(lst_weights).to(device) #.to(device)
         self.ct_order = ct_order
-        self.L_tot = L_tot
+        self.L_tot = L_totself.automatic_optimization = False
+
         self.L_list = L_list 
         self.n_cell_typesp1 = len(ct_order)
         
@@ -379,7 +387,7 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
                     self.theta.data[:,self.start_pos[ct] + self.L[ct] - 1][self.adj_matrix[i].sum(axis = 1) != 0] = -val
             
 
-## need to add class for lightning module
+
     
 
 class SPECTRA_Model:
@@ -495,6 +503,10 @@ class SPECTRA_Model:
         self.kappa = kappa 
         self.rho = rho 
         self.use_cell_types = use_cell_types
+        
+        # self.automatic_optimization = False <- add in order to use custom training loop. if we completely abstract to lightning, not necessary
+        # possible that the non-parameter tensors that get initialized here need be turned into buffers
+
 
         # if gs_dict is provided instead of adj_matrix, convert to adj_matrix, overrides adj_matrix and weights
         if gs_dict is not None:
@@ -516,10 +528,11 @@ class SPECTRA_Model:
         self.rho = None 
         self.kappa = None 
 
-    ## change this function to be compatible with lightning as a custom hook
+    ## change this function to be compatible with lightning as a custom hook 
     ## aka this is mostly all the same, but move the optimizer and lr_scheduler into a function called configure_optimizers
     def train(self,X, labels = None, lr_schedule = [.5,.1,.01,.001,.0001], num_epochs = 100, batch_size = 1000, skip = 15, verbose = False): 
-        opt = torch.optim.Adam(self.internal_model.parameters(), lr=lr_schedule[0])
+        opt = torch.optim.Adam(self.internal_model.parameters(), lr=lr_schedule[0]) # self.optimizers() - move actual optimizer into configure_optimizers
+        #opt = opt.optimizer
         counter = 0
         last = np.inf
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove
@@ -533,11 +546,11 @@ class SPECTRA_Model:
 
             tot = 0 
             for j in range(len(X_b)):
-                opt.zero_grad() ## remove
+                opt.zero_grad() 
                 ## remove .to(device)
-                loss = self.internal_model.loss(X_b[j].to(device), alpha_mask_b[j].to(device) , alpha_b[j], batch_size) 
-                ## remove three lines below
-                loss.backward() 
+                loss = self.internal_model.loss(X_b[j].to(device), alpha_mask_b[j].to(device) , alpha_b[j], batch_size) # self.compute_loss()
+             
+                loss.backward() #<- self.manual_backward(loss)
                 opt.step() 
                 tot += loss.item() 
                 
@@ -558,8 +571,8 @@ class SPECTRA_Model:
             self.__store_parameters(labels)
         else:
             self.__store_parameters_no_celltypes()
-    ## this prob needs to get changed to lightning object
-    ## the name can stay the same, it just becomes a call to the lightning obj
+    
+    
     def save(self, fp):
         torch.save(self.internal_model.state_dict(),fp)
   
@@ -894,7 +907,7 @@ def est_spectra(adata, gene_set_dictionary, L = None,use_highly_variable = True,
     print("CUDA memory: ", 1e-9*torch.cuda.memory_allocated(device=device))
     spectra.initialize(gene_set_dictionary, word2id, X, init_scores)
     print("Beginning training...")
-    spectra.train(X = X, labels = labels,**kwargs) # change to call to lightning trainer
+    spectra.train(X = X, labels = labels,**kwargs) # change to call to lightning trainer? unless we decide to stay with the custom loop
 
     adata.uns["SPECTRA_factors"] = spectra.factors
     adata.obsm["SPECTRA_cell_scores"] = spectra.cell_scores
