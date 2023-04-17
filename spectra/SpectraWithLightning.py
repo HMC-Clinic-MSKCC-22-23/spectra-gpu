@@ -81,7 +81,13 @@ class SPECTRA_LitModel(pl.LightningModule):
         term3 = -1.0*((torch.xlogy(self.internal_model.adj_matrix_1m,(1.0 -kappa.reshape(-1,1,1))*(1.0 - rho.reshape(-1,1,1))*(1.0 - mat) + rho.reshape(-1,1,1)))*self.internal_model.ct_vec.reshape(-1,1,1)).sum()
         loss = (self.n/batch_size)*self.internal_model.lam*term1 + term2 + term3 #upweight local param terms to be correct on expectation 
         return loss
-
+    
+    def save(self, fp):
+        torch.save(self.internal_model.state_dict(),fp)
+  
+    def load(self,fp,labels = None):
+        self.internal_model.load_state_dict(torch.load(fp))
+    
     def return_eta_diag(self):
         return self.B_diag
     def return_cell_scores(self):
