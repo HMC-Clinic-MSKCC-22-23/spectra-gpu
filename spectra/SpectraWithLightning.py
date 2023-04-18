@@ -9,6 +9,7 @@ from scipy.special import softmax
 from spectra import spectra_util
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import Callback
+from torch.utils.data import Dataset, TensorDataset, DataLoader, random_split
 
 import torch.nn.functional as F
 import torch.nn as nn
@@ -24,10 +25,48 @@ from torch.distributions.dirichlet import Dirichlet
 class SPECTRA(nn.Module):
    def __init__(self):
        return 0
-           
+
+
+
+
 class SPECTRA_DataModule(pl.LightningDataModule):
-    def __init__(self):
-        return 0
+    def __init__(self, X, alpha_mask):    #assuming paramters are computed and accessible
+        super().__init__()
+        self.X = X
+        self.alpha_mask = alpha_mask
+        self.batch_size = 1000      #for now 
+
+    def prepare_data(self):
+        dataset= TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))  # alpha_mask as feature, X as target ? 
+        loader_tr = DataLoader(dataset,batch_size=self.batch_size, shuffle=False, num_workers=4) #added this in case we need iter things, incomplete 
+        self.dataset= dataset
+
+
+        # batching?? 
+
+    def setup(self, stage=None):
+        # Assign train/val datasets for use in dataloaders
+        if stage == "fit" or stage is None:
+            self.train = Dataset(self.dataset, train=True, transform=True) # not sure about transform, train file name
+            self.validate = Dataset(self.dataset) # validation file name
+
+        # Assign test dataset for use in dataloader(s)
+        if stage == "test" or stage is None:
+            self.test = Dataset(self.dataset)    # test file name
+
+    def train_dataloader(self):
+        return DataLoader(self.train, self.batch_size)
+
+    def val_dataloader(self):
+        return DataLoader(self.validate, self.batch_size)
+
+    def test_dataloader(self):
+        return DataLoader(self.test, self.batch_size)
+
+
+
+
+
 
 class SPECTRA_LitModel(pl.LightningModule):
     def __init__(self, internal_model):
@@ -161,6 +200,11 @@ class SPECTRA_LitModel(pl.LightningModule):
                 output.append("0")
         return np.array(output)
 
+
+
+
+
+
 class SPECTRA_Callback(Callback):
     def on_train_end(self, trainer, pl_module):
 
@@ -198,6 +242,10 @@ class SPECTRA_Callback(Callback):
         self.gene_scalings = {ct : gene_scaling[i].detach().cpu().numpy() for i, ct in enumerate(model.ct_order)}
         self.rho = {ct: model.rho[i].exp().detach().cpu().numpy()/(1.0 + model.rho[i].exp().detach().cpu().numpy()) for i, ct in enumerate(model.ct_order)}
         self.kappa = {ct: model.kappa[i].exp().detach().cpu().numpy()/(1.0 + model.kappa[i].exp().detach().cpu().numpy()) for i, ct in enumerate(model.ct_order)}
+
+
+
+
 
 
 class est_spectra():
