@@ -38,7 +38,7 @@ class SPECTRA_DataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         dataset= TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))  # alpha_mask as feature, X as target ? 
-        loader_tr = DataLoader(dataset,batch_size=self.batch_size, shuffle=False, num_workers=4) #added this in case we need iter things, incomplete 
+        # loader_tr = DataLoader(dataset,batch_size=self.batch_size, shuffle=False, num_workers=4) #added this in case we need iter things, incomplete 
         self.dataset= dataset
 
 
