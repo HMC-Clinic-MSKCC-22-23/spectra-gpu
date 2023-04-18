@@ -5,10 +5,12 @@ import pandas as pd
 #spectra imports 
 from spectra import spectra as spc
 
-adata = sc.read_h5ad("../../clean_myeloid.h5ad")
+adata = sc.read_h5ad("../clean_myeloid.h5ad")
 
 annotations = {
-    'global': {},
+    'global': {
+        'gene-set':['MARCO', 'KRT79', 'KRT19', 'CAR4', 'CHIL3']
+    },
     'Alveolar Macrophage': {
         'gene-set':['MARCO', 'KRT79', 'KRT19', 'CAR4', 'CHIL3']
     },
@@ -47,8 +49,16 @@ model = spc.est_spectra(adata = adata, gene_set_dictionary = annotations,
                         delta = 0.001,kappa = 0.00001, rho = 0.00001, 
                         use_cell_types = True, #set to False to not use the cell type annotations
                         n_top_vals = 25, 
-                        num_epochs = 5000 #for demonstration purposes we will only run 2 epochs, we recommend 10,000 epochs
+                        num_epochs = 1 #for demonstration purposes we will only run 2 epochs, we recommend 10,000 epochs
                        )
 
-# pd.DataFrame(adata.obsm["SPECTRA_cell_scores"]).to_csv("cell_scores.csv", header=False, index=False)
-# pd.DataFrame(adata.uns["SPECTRA_factors"]).to_csv("factors.csv", header=False, index=False)
+cell_scores = pd.DataFrame(adata.obsm["SPECTRA_cell_scores"])
+cell_scores.columns = [f"Factor_{x}" for x in range(len(cell_scores.columns))]
+cell_scores.index = adata.obs_names
+
+gene_scores = pd.DataFrame(adata.uns["SPECTRA_factors"]).T
+gene_scores.columns = [f"Factor_{x}" for x in range(len(gene_scores.columns))]
+gene_scores.index = adata.var_names
+
+cell_scores.to_csv("cell_scores.csv", header=True, index = True)
+gene_scores.to_csv("factors.csv", header=True, index = True)
