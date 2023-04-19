@@ -248,6 +248,294 @@ class SPECTRA_Callback(Callback):
 
 
 
-class est_spectra():
-    def __init__(self):
-        return 0
+def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, cell_type_key=None, use_weights=True,
+                lam=0.008, delta=0.001, kappa=None, rho=0.05, use_cell_types=True, n_top_vals=50, filter_sets=True,
+                **kwargs):
+    """
+
+    Parameters
+        ----------
+        adata : AnnData object
+            containing cell_type_key with log count data stored in .X
+        gene_set_dictionary : dict or OrderedDict()
+            maps cell types to gene set names to gene sets ; if use_cell_types == False then maps gene set names to gene sets ;
+            must contain "global" key in addition to every unique cell type under .obs.<cell_type_key>
+        L : dict, OrderedDict(), int , NoneType
+            number of factors per cell type ; if use_cell_types == False then int. Else dictionary. If None then match factors
+            to number of gene sets (recommended)
+        use_highly_variable : bool
+            if True, then uses highly_variable_genes
+        cell_type_key : str
+            cell type key, must be under adata.obs.<cell_type_key> . If use_cell_types == False, this is ignored
+        use_weights : bool
+            if True, edge weights are estimated based on graph structure and used throughout training
+        lam : float
+            lambda parameter of the model. weighs relative contribution of graph and expression loss functions
+        delta : float
+            delta parameter of the model. lower bounds possible gene scaling factors so that maximum ratio of gene scalings
+            cannot be too large
+        kappa : float or None
+            if None, estimate background rate of 1s in the graph from data
+        rho : float or None
+            if None, estimate background rate of 0s in the graph from data
+        use_cell_types : bool
+            if True then cell type label is used to fit cell type specific factors. If false then cell types are ignored
+        n_top_vals : int
+            number of top markers to return in markers dataframe
+        determinant_penalty : float
+            determinant penalty of the attention mechanism. If set higher than 0 then sparse solutions of the attention weights
+            and diverse attention weights are encouraged. However, tuning is crucial as setting too high reduces the selection
+            accuracy because convergence to a hard selection occurs early during training [todo: annealing strategy]
+        filter_sets : bool
+            whether to filter the gene sets based on coherence
+        **kwargs : (num_epochs = 10000, lr_schedule = [...], verbose = False)
+            arguments to .train(), maximum number of training epochs, learning rate schedule and whether to print changes in
+            learning rate
+
+     Returns: SPECTRA_LitModel object [after training]
+
+     In place: adds 1. factors, 2. cell scores, 3. vocabulary, and 4. markers as attributes in .obsm, .var, .uns
+
+    """
+
+    if use_cell_types == False:
+        raise NotImplementedError("use_cell_types == False is not supported yet")
+
+    # print("CUDA Available: ", torch.cuda.is_available())
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove this
+
+    if L == None:
+        init_flag = True
+        if use_cell_types:
+            L = {}
+            for key in gene_set_dictionary.keys():
+                length = len(list(gene_set_dictionary[key].values()))
+                L[key] = length + 1
+        else:
+            length = len(list(gene_set_dictionary.values()))
+            L = length + 1
+    # create vocab list from gene_set_dictionary
+    lst = []
+    if use_cell_types:
+        for key in gene_set_dictionary:
+            for key2 in gene_set_dictionary[key]:
+                gene_list = gene_set_dictionary[key][key2]
+                lst += gene_list
+    else:
+        for key in gene_set_dictionary:
+            gene_list = gene_set_dictionary[key]
+            lst += gene_list
+
+    # lst contains all of the genes that are in the gene sets --> convert to boolean array
+    bools = []
+    for gene in adata.var_names:
+        if gene in lst:
+            bools.append(True)
+        else:
+            bools.append(False)
+    bools = np.array(bools)
+
+    if use_highly_variable:
+        idx_to_use = bools | adata.var.highly_variable  # take intersection of highly variable and gene set genes (todo: add option to change this at some point)
+        X = adata.X[:, idx_to_use]
+        vocab = adata.var_names[idx_to_use]
+        adata.var["spectra_vocab"] = idx_to_use
+    else:
+        X = adata.X
+        vocab = adata.var_names
+
+    if use_cell_types:
+        labels = adata.obs[cell_type_key].values
+        for label in np.unique(labels):
+            if label not in gene_set_dictionary:
+                gene_set_dictionary[label] = {}
+            if label not in L:
+                L[label] = 1
+    else:
+        labels = None
+    if type(X) == scipy.sparse.csr.csr_matrix:
+        X = np.array(X.todense())
+    word2id = dict((v, idx) for idx, v in enumerate(vocab))
+    id2word = dict((idx, v) for idx, v in enumerate(vocab))
+
+    if filter_sets:
+        if use_cell_types:
+            new_gs_dict = {}
+            init_scores = compute_init_scores(gene_set_dictionary, word2id, torch.Tensor(X))
+            for ct in gene_set_dictionary.keys():
+                new_gs_dict[ct] = {}
+                mval = max(L[ct] - 1, 0)
+                sorted_init_scores = sorted(init_scores[ct].items(), key=lambda x: x[1])
+                sorted_init_scores = sorted_init_scores[-1 * mval:]
+                names = set([k[0] for k in sorted_init_scores])
+                for key in gene_set_dictionary[ct].keys():
+                    if key in names:
+                        new_gs_dict[ct][key] = gene_set_dictionary[ct][key]
+        else:
+            init_scores = compute_init_scores_noct(gene_set_dictionary, word2id, torch.Tensor(X))
+            new_gs_dict = {}
+            mval = max(L - 1, 0)
+            sorted_init_scores = sorted(init_scores.items(), key=lambda x: x[1])
+            sorted_init_scores = sorted_init_scores[-1 * mval:]
+            names = set([k[0] for k in sorted_init_scores])
+            for key in gene_set_dictionary.keys():
+                if key in names:
+                    new_gs_dict[key] = gene_set_dictionary[key]
+        gene_set_dictionary = new_gs_dict
+    else:
+        init_scores = None
+    print("Initializing model...")
+    spectra_internal = SPECTRA()
+    spectra_dm = SPECTRA_DataModule()
+    spectra_lit = SPECTRA_LitModel(spectra_internal)
+    #SPECTRA  # .to(device) ## remove "to(device)"
+    # print("CUDA memory: ", 1e-9*torch.cuda.memory_allocated(device=device))
+    print("initialized internal model")
+    spectra_lit.initialize(gene_set_dictionary, word2id, X, init_scores)
+    print("Beginning training...")
+    spectra_lit.train(spectra_dm, callbacks = [SPECTRA_Callback()],**kwargs)  # change to call to lightning trainer? unless we decide to stay with the custom loop
+
+    adata.uns["SPECTRA_factors"] = spectra_lit.factors
+    adata.obsm["SPECTRA_cell_scores"] = spectra_lit.cell_scores
+    adata.uns["SPECTRA_markers"] = return_markers(factor_matrix=spectra_lit.factors, id2word=id2word, n_top_vals=n_top_vals)
+    adata.uns["SPECTRA_L"] = L
+    return spectra_lit
+
+
+def return_markers(factor_matrix, id2word, n_top_vals=100):
+    idx_matrix = np.argsort(factor_matrix, axis=1)[:, ::-1][:, :n_top_vals]
+    df = pd.DataFrame(np.zeros(idx_matrix.shape))
+    for i in range(idx_matrix.shape[0]):
+        for j in range(idx_matrix.shape[1]):
+            df.iloc[i, j] = id2word[idx_matrix[i, j]]
+    return df.values
+
+
+def load_from_pickle(fp, adata, gs_dict, cell_type_key):
+    spectra_internal = SPECTRA()
+    model = SPECTRA_LitModel(spectra_internal)
+    model.load(fp, labels=np.array(adata.obs[cell_type_key]))
+    return (model)
+
+def graph_network(adata, mat, gene_set, thres=0.20, N=50):
+    vocab = adata.var_names[adata.var["spectra_vocab"]]
+    word2id = dict((v, idx) for idx, v in enumerate(vocab))
+    id2word = dict((idx, v) for idx, v in enumerate(vocab))
+
+    net = Network(height='750px', width='100%', bgcolor='#FFFFFF', font_color='black', notebook=True)
+    net.barnes_hut()
+
+    idxs = []
+    for term in gene_set:
+        idxs.append(word2id[term])
+    ests = list(set(list(mat[idxs, :].sum(axis=0).argsort()[::-1][:N]) + idxs))
+    ests_names = []
+    count = 0
+    for est in ests:
+        ests_names.append(id2word[est])
+        if est not in idxs:
+            net.add_node(count, label=id2word[est], color='#00ff1e')
+        else:
+            net.add_node(count, label=id2word[est], color='#162347')
+        count += 1
+
+    inferred_mat = mat[ests, :][:, ests]
+    for i in range(len(inferred_mat)):
+        for j in range(i + 1, len(inferred_mat)):
+            if inferred_mat[i, j] > thres:
+                net.add_edge(i, j)
+    neighbor_map = net.get_adj_list()
+    for node in net.nodes:
+        node['value'] = len(neighbor_map[node['id']])
+
+    return net
+
+
+def graph_network_multiple(adata, mat, gene_sets, thres=0.20, N=50):
+    gene_set = []
+    for gs in gene_sets:
+        gene_set += gs
+
+    vocab = adata.var_names[adata.var["spectra_vocab"]]
+    word2id = dict((v, idx) for idx, v in enumerate(vocab))
+    id2word = dict((idx, v) for idx, v in enumerate(vocab))
+
+    net = Network(height='750px', width='100%', bgcolor='#FFFFFF', font_color='black', notebook=True)
+    net.barnes_hut()
+    idxs = []
+    for term in gene_set:
+        idxs.append(word2id[term])
+    ests = list(set(list(mat[idxs, :].sum(axis=0).argsort()[::-1][:N]) + idxs))
+    ests_names = []
+    count = 0
+
+    color_map = []
+    for gene_set in gene_sets:
+        random_color = ["#" + ''.join([random.choice('ABCDEF0123456789') for i in range(6)])]
+        color_map.append(random_color[0])
+
+    for est in ests:
+        ests_names.append(id2word[est])
+        if est not in idxs:
+            net.add_node(count, label=id2word[est], color='#00ff1e')
+        else:
+            for i in range(len(gene_sets)):
+                if id2word[est] in gene_sets[i]:
+                    color = color_map[i]
+                    break
+            net.add_node(count, label=id2word[est], color=color)
+        count += 1
+
+    inferred_mat = mat[ests, :][:, ests]
+    for i in range(len(inferred_mat)):
+        for j in range(i + 1, len(inferred_mat)):
+            if inferred_mat[i, j] > thres:
+                net.add_edge(i, j)
+    neighbor_map = net.get_adj_list()
+    for node in net.nodes:
+        node['value'] = len(neighbor_map[node['id']])
+
+    return net
+
+
+def gene_set_graph(gene_sets):
+    """
+    input
+    [
+    ["a","b", ... ],
+    ["b", "d"],
+
+    ...
+    ]
+    """
+
+    net = Network(height='750px', width='100%', bgcolor='#FFFFFF', font_color='black', notebook=True)
+    net.barnes_hut()
+    count = 0
+    # create nodes
+    genes = []
+    for gene_set in gene_sets:
+        genes += gene_set
+
+    color_map = []
+    for gene_set in gene_sets:
+        random_color = ["#" + ''.join([random.choice('ABCDEF0123456789') for i in range(6)])]
+        color_map.append(random_color[0])
+
+    for gene in genes:
+        for i in range(len(gene_sets)):
+            if gene in gene_sets[i]:
+                color = color_map[i]
+                break
+        net.add_node(gene, label=gene, color=color)
+
+    for gene_set in gene_sets:
+        for i in range(len(gene_set)):
+            for j in range(i + 1, len(gene_set)):
+                net.add_edge(gene_set[i], gene_set[j])
+
+    neighbor_map = net.get_adj_list()
+    for node in net.nodes:
+        node['value'] = len(neighbor_map[node['id']])
+
+    return net
