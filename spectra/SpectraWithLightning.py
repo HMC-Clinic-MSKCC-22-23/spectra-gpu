@@ -22,11 +22,244 @@ from torch.distributions.normal import Normal
 from torch.distributions.log_normal import LogNormal
 from torch.distributions.dirichlet import Dirichlet
 
-class SPECTRA(nn.Module):
-   def __init__(self):
-       return 0
+class SPECTRA(nn.Module):  ## change here to inherit from lightning module
+    """
+
+    Parameters
+        ----------
+        X : np.ndarray or torch.Tensor
+            the ``(n, p)`` -shaped matrix containing logged expression count data. Used for initialization of self.n and self.p but not stored as an attribute
+        labels : np.ndarray or NoneType
+            the ``(n, )`` -shaped array containing cell type labels. If use_cell_types == False, then should be set to None
+
+        L : dict or OrderedDict [if use_cell_types == False, then int]
+            ``number of cell types + 1``-shaped dictionary. Must have "global" as a key, indicating the number of global factors
+            {
+                "global": 15,
+                "CD8": 5
+                ...
+            }
+            > Format matches output of K_est.py to estimate the number of
+            > Must match cell type labels provided during training
+            > Recommended practice is to assign at minimum 2 factors per cell type
+            > Note that L contains the number of factors that describe the graph.
+        adj_matrix :  dict or OrderedDict
+            ``a dictionary of adjacency matrices, one for every cell type + a "global"
+            {
+                "global": ``(p, p)``-shaped binary np.ndarray
+                "CD8": ...
+            }
+        weights : dict or OrderedDict or NoneType [if use_cell_types == False, then ``(p, p)``-shaped array]
+            the ``(p, p)``-shaped set of edge weights per . If weight[i,j] is non-zero when adj_matrix[i,j] = 0
+            this weight is ignored.
+
+            if weights == None, no weights are used
+        lam : float
+            lambda parameter of the model, which controls the relative influence of the graph vs expression loss functions. This term multiplies the expression loss, so smaller values of lambda upweight the prior information
+        delta : float
+            delta parameter of the model, which controls a lower bound for gene scaling factors. If delta is small then the maximum ratio between gene scaling factors is larger and lowly expressed genes can be put on the same scale as highly expressed genes.
+        kappa : float or NoneType
+            kappa controls the background rate of edges in the graph. if kappa is a float, kappa is fixed to the given float value. If kappa == None, then kappa is a parameter that is estimated from the data.
+        rho : float or NoneType
+            rho controls the bakcground rate of non-edges in the graph. if rho is a float, rho is fixed to the given float value. If rho == None, then rho is a parameter that is estimated from the data.
+        use_cell_types: bool
+            use_cell_types is a Boolean variable that determines whether cell type labels are used to fit the model. If False, then parameters are initialized as nn.Parameter rather than as nn.ParameterDict with cell type keys that index nn.Parameter values
+
+    Attributes
+        ----------
+        model.delta : delta parameter of the model
+        model.lam : lambda parameter of the model
 
 
+        model.L : L parameter, either int, dict or OrderedDict()
+        model.p : number of genes
+        model.n : number of cells
+        model.use_cell_types : if True then cell types are considered, else cell types ignored. Affects the dimensions of the initialized parameters.
+        model.kappa : if not kappa, nn.ParameterDict() if use_cell_types, else nn.Parameter(). If kappa is a float, it is fixed throughout training
+        model.rho : if not rho, nn.ParamterDict() if use_cell_types, else nn.Parameter. If rho is a float it is fixed throughout training
+        model.adj_matrix : adjacency matrix with diagonal removed. dict containing torch.Tensors
+        model.adj_matrix_1m : 1 - adjacency matrix with diagonal removed. dict containing torch.Tensors
+
+        model.weights : contains edge weights. format matches adj_matrix
+
+        model.cell_types : np.ndarray containing array of unique cell types
+
+        model.cell_type_counts : dict {key = cell type, values = number of cells}
+
+        model.theta : nn.ParameterDict() or nn.Parameter() containing the factor weights
+        model.alpha : nn.ParameterDict() or nn.Parameter() containing the cell loadings
+        model.eta : nn.ParameterDict() or nn.Parameter() containing the interaction matrix between factors
+        model.gene_scaling : nn.ParameterDict() or nn.Parameter() containing the gene scale factors
+        model.selection :  nn.ParameterDict() or nn.Parameter() containing the attention weights. Only initialized when L[cell_type] > K[cell_type] for some cell type or when L > K and use_cell_types == False
+
+        model.kgeql_flag : dict or bool. dictionary of boolean values indicating whether K >= L.  When use_cell_types == False, it is a boolean value
+    Methods
+        ----------
+        model.loss(self, X, labels) : called by fit if use_cell_types = True. Evalutes the loss of the model
+        model.loss_no_cell_types(self,X) : called by fit if use_cell_types = False. Evalutes the loss of the model
+
+        model.initialize(self, gene_sets,val) : initialize the model based on given dictionary of gene sets. val is a float that determines the strength of the initialization.
+
+        model.initialize_no_celltypes(self, gs_list, val) : initialize the model based on given list of gene sets. val is a float that determines the strength of the initialization.
+
+    """
+
+    # possible that the non-parameter tensors that get initialized here need be turned into buffers
+    def __init__(self, X, labels, gs_dict = None, adj_matrix, L, weights=None, lam=10e-4, delta=0.1, kappa=0.00001, rho=0.00001,
+                 use_cell_types=True):
+        super(SPECTRA, self).__init__()
+
+        # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove device
+
+        # hyperparameters
+        self.delta = delta
+        self.lam = lam
+        self.L = L
+        self.kappa = kappa
+        self.rho = rho
+        self.use_cell_types = use_cell_types
+
+        # if gs_dict is provided instead of adj_matrix, convert to adj_matrix, overrides adj_matrix and weights
+        if gs_dict is not None:
+            gene2id = dict((v, idx) for idx, v in enumerate(vocab))
+
+            if use_cell_types:
+                adj_matrix, weights = spectra_util.process_gene_sets(gs_dict=gs_dict, gene2id=gene2id,
+                                                                     weighted=use_weights)
+            else:
+                adj_matrix, weights = spectra_util.process_gene_sets_no_celltypes(gs_dict=gs_dict, gene2id=gene2id,
+                                                                                  weighted=use_weights)
+
+        # for memory efficiency we don't store X in the object attributes, but require X dimensions to be known at initialization
+        self.p = X.shape[1]
+        self.n = X.shape[0]
+        self.use_cell_types = use_cell_types
+
+        print("Building parameter set...")
+        # we only have to do this once so for loop is ok
+
+        # here we are creating lists in place of the original input formats -- to be converted into 3-way tensors instead of dictionaries with a cell type axis
+        lst_adj_matrix = []
+        lst_adj_matrix1m = []
+        lst_weights = []
+        ct_order = []
+        L_tot = 0
+        L_list = []
+        self.start_pos = OrderedDict()
+
+        for cell_type in adj_matrix.keys():
+            ct_order.append(cell_type)
+            L_tot += L[cell_type]
+            L_list.append(L[cell_type])
+            if len(adj_matrix[cell_type]) > 0:
+                temp = torch.Tensor(adj_matrix[cell_type]) - torch.Tensor(np.diag(np.diag(adj_matrix[cell_type])))
+                lst_adj_matrix.append(temp)
+                lst_adj_matrix1m.append(1.0 - temp - torch.diag(torch.diag(1.0 - temp)))
+            else:
+                lst_adj_matrix.append(torch.zeros((self.p, self.p)))
+                lst_adj_matrix1m.append(torch.zeros((self.p, self.p)))
+        # self.adj_matrix = torch.stack(lst_adj_matrix).to(device) #(cell_types + 1, p, p ) <- remove .to(device)
+        self.register_buffer("adj_matrix", torch.stack(lst_adj_matrix))
+        # self.adj_matrix_1m = torch.stack(lst_adj_matrix1m).to(device) #(cell_types + 1, p, p) <- remove .to(device)
+        self.register_buffer("adj_matrix_1m", torch.stack(lst_adj_matrix1m))
+
+        if weights:
+            for cell_type in ct_order:
+                if len(weights[cell_type]) > 0:
+                    lst_weights.append(
+                        torch.Tensor(weights[cell_type]) - torch.Tensor(np.diag(np.diag(weights[cell_type]))))
+                else:
+                    lst_weights.append(torch.zeros((self.p, self.p)))
+        else:
+            self.weights = self.adj_matrix
+            # self.weights = torch.stack(lst_weights).to(device) #.to(device)
+        self.register_buffer("weights", torch.stack(lst_weights))
+        self.ct_order = ct_order
+        self.L_tot = L_tot
+        self.L_list = L_list
+        self.n_cell_typesp1 = len(ct_order)
+
+        # just need to construct these masks once
+        # self.alpha_mask = torch.zeros((self.n,self.L_tot)).to(device) # remove .to(device)
+        self.register_buffer("alpha_mask", torch.zeros((self.n, self.L_tot)))
+        # self.B_mask = torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)).to(device) #need to double check that this works <- remove .to(device)
+        self.register_buffer("B_mask", torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)))
+        # self.factor_to_celltype = torch.zeros((self.L_tot, self.n_cell_typesp1)).to(device) # remove .to(device)
+        self.register_buffer("factor_to_celltype", torch.zeros((self.L_tot, self.n_cell_typesp1)))
+
+        self.theta = nn.Parameter(Normal(0., 1.).sample([self.p, self.L_tot]))
+        self.eta = nn.Parameter(Normal(0., 1.).sample([self.L_tot, self.L_tot]))
+        self.alpha = nn.Parameter(Normal(0., 1.).sample([self.n, self.L_tot]))
+        self.gene_scalings = nn.Parameter(Normal(0., 1.).sample([self.n_cell_typesp1, self.p]))
+
+        # need to add kappa and rho initilizations and figure out the masking for B and loadings and how to multiply the gene scalings by the factors -- create a one hot vector for cell type --> factor assignments to get
+        if kappa == None:
+            self.kappa = nn.Parameter(Normal(0., 1.).sample([self.n_cell_typesp1]))
+        if rho == None:
+            self.rho = nn.Parameter(Normal(0., 1.).sample([self.n_cell_typesp1]))
+        if kappa != None:
+            # self.kappa = (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(kappa /(1-kappa)))).to(device) # remove .to(device)
+            self.register_buffer("kappa",
+                                 (torch.ones((self.n_cell_typesp1)) * torch.tensor(np.log(kappa / (1 - kappa)))))
+        if rho != None:
+            # self.rho =  (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(rho /(1-rho)))).to(device) # remove .to(device)
+            self.register_buffer("rho", (torch.ones((self.n_cell_typesp1)) * torch.tensor(np.log(rho / (1 - rho)))))
+
+        # make sure
+        if ct_order[0] != "global":
+            raise Exception("First key in ordered dict must be global")
+
+        counter = 0
+        counter_B = 0
+        for ct in ct_order:
+            self.start_pos[ct] = counter
+            if ct == "global":
+                self.alpha_mask[:, counter:counter + L[ct]] = 1.0
+            else:
+                cells_mask = labels == ct
+                self.alpha_mask[cells_mask, counter:counter + L[ct]] = 1.0
+
+            self.B_mask[counter_B, counter:counter + L[ct], counter:counter + L[ct]] = 1.0
+            self.factor_to_celltype[counter:counter + L[ct], counter_B] = 1.0
+            counter = counter + L[ct]
+            counter_B = counter_B + 1
+
+        # check that these masks are correct
+        self.cell_type_counts = []
+        for cell_type in ct_order:
+            if cell_type == "global":
+                self.cell_type_counts.append(self.n)
+            else:
+                n_c = sum(labels == cell_type)
+                # mimic behavior of old version: Tues Feb 21, 2023 <-- if there are no annotations we'll just set the whole loss to 0 by setting cell type counts to 0
+                if len(adj_matrix[cell_type]) > 0:
+                    self.cell_type_counts.append(n_c)
+                else:
+                    self.cell_type_counts.append(0)
+        self.cell_type_counts = np.array(self.cell_type_counts)
+        # self.ct_vec =  torch.Tensor(self.cell_type_counts/float(self.n)).to(device) # remove .to(device)
+        self.register_buffer("ct_vec", torch.Tensor(self.cell_type_counts / float(self.n)))
+
+    def initialize(self, gene_sets, val):
+        """
+        form of gene_sets:
+
+        cell_type (inc. global) : set of sets of idxs
+        """
+
+        for i, ct in enumerate(self.ct_order):
+            assert (self.L[ct] >= len(gene_sets[ct]))
+            count = self.start_pos[ct]
+            if self.L[ct] > 0:
+                if self.cell_type_counts[i] > 0:
+                    for gene_set in gene_sets[ct]:
+                        self.theta.data[:, count][gene_set] = val
+                        count = count + 1
+                    for j in range(self.L[ct]):
+                        self.eta.data[self.start_pos[ct] + j, self.start_pos[ct] + self.L[ct] - 1] = -val
+                        self.eta.data[self.start_pos[ct] + self.L[ct] - 1, self.start_pos[ct] + j] = -val
+                    self.theta.data[:, self.start_pos[ct] + self.L[ct] - 1][self.adj_matrix[i].sum(axis=1) == 0] = val
+                    self.theta.data[:, self.start_pos[ct] + self.L[ct] - 1][self.adj_matrix[i].sum(axis=1) != 0] = -val
 
 
 class SPECTRA_DataModule(pl.LightningDataModule):
