@@ -404,7 +404,7 @@ class SPECTRA_LitModel(pl.LightningModule):
         gene_scaling_ = contract('ij,ki->jk',gene_scaling, self.internal_model.factor_to_celltype) #p x L_tot
         theta_ = theta * (gene_scaling_ + self.internal_model.delta)  #p x L_tot
         alpha_ = torch.exp(alpha) # should get the same thing as original gpu implementation, which is batch x L_tot
-        recon = contract('ik,jk->ij' , alpha_, theta_)
+        recon = contract('ik,jk->ij' , alpha_, theta_) # size alpha [100, 5317] theta_ [5317, 193]
         term1 = -1.0*(torch.xlogy(X,recon) - recon).sum()
         
         eta_ = eta[None,:,:]*self.internal_model.B_mask #ctp1 x L_tot x L_tot 
@@ -412,7 +412,7 @@ class SPECTRA_LitModel(pl.LightningModule):
         mat = contract('il,clj,kj->cik',theta_,eta_,theta_) #ctp1 x p x p
         term2 = -1.0*((torch.xlogy(self.internal_model.adj_matrix*self.internal_model.weights, (1.0 - rho.reshape(-1,1,1))*(1.0 -kappa.reshape(-1,1,1))*mat + (1.0 - rho.reshape(-1,1,1))*kappa.reshape(-1,1,1)))*self.internal_model.ct_vec.reshape(-1,1,1)).sum()
         term3 = -1.0*((torch.xlogy(self.internal_model.adj_matrix_1m,(1.0 -kappa.reshape(-1,1,1))*(1.0 - rho.reshape(-1,1,1))*(1.0 - mat) + rho.reshape(-1,1,1)))*self.internal_model.ct_vec.reshape(-1,1,1)).sum()
-        loss = (self.n/batch_size)*self.internal_model.lam*term1 + term2 + term3 #upweight local param terms to be correct on expectation 
+        loss = (self.internal_model.n/batch_size)*self.internal_model.lam*term1 + term2 + term3 #upweight local param terms to be correct on expectation 
         return loss
     
     
@@ -676,7 +676,7 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     spectra_model.initialize(gene_set_dictionary, word2id, X, init_scores)
     print("initialized internal model")
     # stuff to do here to make sure data module is there
-    spectra_dm = SPECTRA_DataModule(X, spectra_model.alpha * spectra_model.alpha_mask)
+    spectra_dm = SPECTRA_DataModule(spectra_model.alpha * spectra_model.alpha_mask, X)
     print("created dataModule")
     spectra_lit = SPECTRA_LitModel(spectra_model)
     print("Beginning training...")
