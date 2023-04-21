@@ -516,7 +516,7 @@ class SPECTRA_Callback(Callback):
         # calculate B_diag
         Bg = model.eta.exp()/(1.0 + model.eta.exp())
         Bg = 0.5*(Bg + Bg.T)
-        self.B_diag = torch.diag(Bg).detach().cpu().numpy()
+        pl_module.B_diag = torch.diag(Bg).detach().cpu().numpy()
 
 
         # calculate eta matrix
@@ -526,15 +526,15 @@ class SPECTRA_Callback(Callback):
 
         for ct in model.ct_order:
             eta[ct] = Bg[model.start_pos[ct]: model.start_pos[ct] +model.L[ct], model.start_pos[ct]: model.start_pos[ct] +model.L[ct]].detach().cpu().numpy()
-        self.eta_matrices = eta
+        pl_module.eta_matrices = eta
 
         
         #new store params stuff 
-        self.cell_scores = cell_scores
-        self.factors = new_factors
-        self.gene_scalings = {ct : gene_scaling[i].detach().cpu().numpy() for i, ct in enumerate(model.ct_order)}
-        self.rho = {ct: model.rho[i].exp().detach().cpu().numpy()/(1.0 + model.rho[i].exp().detach().cpu().numpy()) for i, ct in enumerate(model.ct_order)}
-        self.kappa = {ct: model.kappa[i].exp().detach().cpu().numpy()/(1.0 + model.kappa[i].exp().detach().cpu().numpy()) for i, ct in enumerate(model.ct_order)}
+        pl_module.cell_scores = cell_scores
+        pl_module.factors = new_factors
+        pl_module.gene_scalings = {ct : gene_scaling[i].detach().cpu().numpy() for i, ct in enumerate(model.ct_order)}
+        pl_module.rho = {ct: model.rho[i].exp().detach().cpu().numpy()/(1.0 + model.rho[i].exp().detach().cpu().numpy()) for i, ct in enumerate(model.ct_order)}
+        pl_module.kappa = {ct: model.kappa[i].exp().detach().cpu().numpy()/(1.0 + model.kappa[i].exp().detach().cpu().numpy()) for i, ct in enumerate(model.ct_order)}
 
 
 
