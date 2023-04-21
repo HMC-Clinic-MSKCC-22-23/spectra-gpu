@@ -388,7 +388,7 @@ class SPECTRA_LitModel(pl.LightningModule):
         return [optimizer], [lr_scheduler]
     
     def compute_loss(self, X, alpha):
-        assert(self.use_cell_types) #if this is False, fail because model has not been initialized to use cell types
+        assert(self.internal_model.use_cell_types) #if this is False, fail because model has not been initialized to use cell types
         
         batch_size = 1000 # can be changed here, like num_epochs
 
@@ -433,7 +433,7 @@ class SPECTRA_LitModel(pl.LightningModule):
         return self.gene_scalings
     def return_graph(self, ct = "global"):
         model = self.internal_model
-        if self.use_cell_types:
+        if model.use_cell_types:
             eta = (model.eta[ct]).exp()/(1.0 + (model.eta[ct]).exp())
             eta = 0.5*(eta + eta.T)
             theta = torch.softmax(model.theta[ct], dim = 1)
