@@ -112,9 +112,9 @@ class SPECTRA(nn.Module):
 
 
         # hyperparameters
-        #self.delta = delta
-        #self.lam = lam
-        #self.L = L
+        self.delta = delta
+        self.lam = lam
+        self.L = L
         #self.kappa = kappa
         #self.rho = rho
         self.use_cell_types = use_cell_types
