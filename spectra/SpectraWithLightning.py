@@ -22,6 +22,9 @@ from torch.distributions.normal import Normal
 from torch.distributions.log_normal import LogNormal
 from torch.distributions.dirichlet import Dirichlet
 
+### Class for SPECTRA model 
+from spectra.initialization import *
+
 class SPECTRA(nn.Module): 
     """
 
@@ -109,11 +112,11 @@ class SPECTRA(nn.Module):
 
 
         # hyperparameters
-        self.delta = delta
-        self.lam = lam
-        self.L = L
-        self.kappa = kappa
-        self.rho = rho
+        #self.delta = delta
+        #self.lam = lam
+        #self.L = L
+        #self.kappa = kappa
+        #self.rho = rho
         self.use_cell_types = use_cell_types
 
         # if gs_dict is provided instead of adj_matrix, convert to adj_matrix, overrides adj_matrix and weights
@@ -130,7 +133,6 @@ class SPECTRA(nn.Module):
         # for memory efficiency we don't store X in the object attributes, but require X dimensions to be known at initialization
         self.p = X.shape[1]
         self.n = X.shape[0]
-        self.use_cell_types = use_cell_types
 
         print("Building parameter set...")
         # we only have to do this once so for loop is ok
