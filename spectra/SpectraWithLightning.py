@@ -381,6 +381,10 @@ class SPECTRA_LitModel(pl.LightningModule):
         X_b, alpha_b = batch
         loss = self.compute_loss(X_b, alpha_b)
         return loss
+    
+
+    def backward(self, loss):
+        loss.backward(retain_graph=True)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.internal_model.parameters(), lr=0.1)
@@ -404,7 +408,7 @@ class SPECTRA_LitModel(pl.LightningModule):
         gene_scaling_ = contract('ij,ki->jk',gene_scaling, self.internal_model.factor_to_celltype) #p x L_tot
         theta_ = theta * (gene_scaling_ + self.internal_model.delta)  #p x L_tot
         alpha_ = torch.exp(alpha) # should get the same thing as original gpu implementation, which is batch x L_tot
-        recon = contract('ik,jk->ij' , alpha_, theta_) # size alpha [100, 5317] theta_ [5317, 193]
+        recon = contract('ik,jk->ij' , alpha_, theta_)
         term1 = -1.0*(torch.xlogy(X,recon) - recon).sum()
         
         eta_ = eta[None,:,:]*self.internal_model.B_mask #ctp1 x L_tot x L_tot 
