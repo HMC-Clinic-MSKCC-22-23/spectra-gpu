@@ -95,12 +95,11 @@ class SPECTRA(nn.Module):
         model.kgeql_flag : dict or bool. dictionary of boolean values indicating whether K >= L.  When use_cell_types == False, it is a boolean value
     Methods
         ----------
-        model.loss(self, X, labels) : called by fit if use_cell_types = True. Evalutes the loss of the model
-        model.loss_no_cell_types(self,X) : called by fit if use_cell_types = False. Evalutes the loss of the model
+        model.initialize(self,annotations, word2id, W, init_scores, val = 25) : calculates the dictionary given to set_factor_weights
 
-        model.initialize(self, gene_sets,val) : initialize the model based on given dictionary of gene sets. val is a float that determines the strength of the initialization.
+        model.set_factor_weights(self, gene_sets,val) : initialize the model based on given dictionary of gene sets. val is a float that determines the strength of the initialization.
 
-        model.initialize_no_celltypes(self, gs_list, val) : initialize the model based on given list of gene sets. val is a float that determines the strength of the initialization.
+        model.set_factor_weights_no_celltypes(self, gs_list, val) : initialize the model based on given list of gene sets. val is a float that determines the strength of the initialization.
 
     """
 
