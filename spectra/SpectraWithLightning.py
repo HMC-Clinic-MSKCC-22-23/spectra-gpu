@@ -681,8 +681,8 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     print("created dataModule")
     spectra_lit = SPECTRA_LitModel(spectra_model)
     print("Beginning training...")
-    trainer = pl.Trainer(max_epochs = 1000)
-    trainer.fit(model = spectra_lit, train_dataloaders = spectra_dm, callbacks = [SPECTRA_Callback()]) 
+    trainer = pl.Trainer(max_epochs = 1000, callbacks = [SPECTRA_Callback()])
+    trainer.fit(model = spectra_lit, train_dataloaders = spectra_dm) 
 
     adata.uns["SPECTRA_factors"] = spectra_lit.factors
     adata.obsm["SPECTRA_cell_scores"] = spectra_lit.cell_scores
