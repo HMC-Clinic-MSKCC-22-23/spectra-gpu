@@ -389,7 +389,6 @@ class SPECTRA_LitModel(pl.LightningModule):
     
     def compute_loss(self, X, alpha):
         assert(self.internal_model.use_cell_types) #if this is False, fail because model has not been initialized to use cell types
-        
         batch_size = 1000 # can be changed here, like num_epochs
 
         # create the weird softmax theta 
@@ -677,7 +676,7 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     spectra_model.initialize(gene_set_dictionary, word2id, X, init_scores)
     print("initialized internal model")
     # stuff to do here to make sure data module is there
-    spectra_dm = SPECTRA_DataModule(X, spectra_model.alpha_mask)
+    spectra_dm = SPECTRA_DataModule(X, spectra_model.alpha * spectra_model.alpha_mask)
     print("created dataModule")
     spectra_lit = SPECTRA_LitModel(spectra_model)
     print("Beginning training...")
