@@ -534,8 +534,6 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     if use_cell_types == False:
         raise NotImplementedError("use_cell_types == False is not supported yet")
 
-    # print("CUDA Available: ", torch.cuda.is_available())
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove this
 
     if L == None:
         init_flag = True
@@ -618,15 +616,16 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     else:
         init_scores = None
     print("Initializing model...")
-    spectra_internal = SPECTRA()
-    spectra_dm = SPECTRA_DataModule()
-    spectra_lit = SPECTRA_LitModel(spectra_internal)
-    #SPECTRA  # .to(device) ## remove "to(device)"
-    # print("CUDA memory: ", 1e-9*torch.cuda.memory_allocated(device=device))
+    spectra_model = SPECTRA()
     print("initialized internal model")
-    spectra_lit.initialize(gene_set_dictionary, word2id, X, init_scores)
+    # stuff to do here to make sure data module is there
+    spectra_dm = SPECTRA_DataModule()
+    print("created dataModule")
+    spectra_lit = SPECTRA_LitModel(spectra_model, **kwargs)
+    # spectra_lit.initialize(gene_set_dictionary, word2id, X, init_scores)
     print("Beginning training...")
-    spectra_lit.train(spectra_dm, callbacks = [SPECTRA_Callback()],**kwargs)  # change to call to lightning trainer? unless we decide to stay with the custom loop
+    trainer = pl.Trainer()
+    trainer.fit(model = spectra_lit, train_dataloaders = spectra_dm, callbacks = [SPECTRA_Callback()]) 
 
     adata.uns["SPECTRA_factors"] = spectra_lit.factors
     adata.obsm["SPECTRA_cell_scores"] = spectra_lit.cell_scores
