@@ -22,7 +22,7 @@ from torch.distributions.normal import Normal
 from torch.distributions.log_normal import LogNormal
 from torch.distributions.dirichlet import Dirichlet
 
-class SPECTRA(nn.Module):  ## change here to inherit from lightning module
+class SPECTRA(nn.Module): 
     """
 
     Parameters
@@ -105,11 +105,9 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
     """
 
     # possible that the non-parameter tensors that get initialized here need be turned into buffers
-    def __init__(self, X, labels, gs_dict = None, adj_matrix, L, weights=None, lam=10e-4, delta=0.1, kappa=0.00001, rho=0.00001,
-                 use_cell_types=True):
+    def __init__(self,X, labels,  L, vocab = None, gs_dict = None, use_weights = False, adj_matrix = None, weights = None, lam = 0.1, delta=0.1,kappa = None, rho = None, use_cell_types = True):
         super(SPECTRA, self).__init__()
 
-        # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") ## remove device
 
         # hyperparameters
         self.delta = delta
@@ -158,9 +156,9 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
             else:
                 lst_adj_matrix.append(torch.zeros((self.p, self.p)))
                 lst_adj_matrix1m.append(torch.zeros((self.p, self.p)))
-        # self.adj_matrix = torch.stack(lst_adj_matrix).to(device) #(cell_types + 1, p, p ) <- remove .to(device)
+        # self.adj_matrix = torch.stack(lst_adj_matrix).to(device) #(cell_types + 1, p, p )
         self.register_buffer("adj_matrix", torch.stack(lst_adj_matrix))
-        # self.adj_matrix_1m = torch.stack(lst_adj_matrix1m).to(device) #(cell_types + 1, p, p) <- remove .to(device)
+        # self.adj_matrix_1m = torch.stack(lst_adj_matrix1m).to(device) #(cell_types + 1, p, p)
         self.register_buffer("adj_matrix_1m", torch.stack(lst_adj_matrix1m))
 
         if weights:
@@ -172,7 +170,7 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
                     lst_weights.append(torch.zeros((self.p, self.p)))
         else:
             self.weights = self.adj_matrix
-            # self.weights = torch.stack(lst_weights).to(device) #.to(device)
+            # self.weights = torch.stack(lst_weights).to(device) 
         self.register_buffer("weights", torch.stack(lst_weights))
         self.ct_order = ct_order
         self.L_tot = L_tot
@@ -180,11 +178,11 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
         self.n_cell_typesp1 = len(ct_order)
 
         # just need to construct these masks once
-        # self.alpha_mask = torch.zeros((self.n,self.L_tot)).to(device) # remove .to(device)
+        # self.alpha_mask = torch.zeros((self.n,self.L_tot)).to(device)
         self.register_buffer("alpha_mask", torch.zeros((self.n, self.L_tot)))
-        # self.B_mask = torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)).to(device) #need to double check that this works <- remove .to(device)
+        # self.B_mask = torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)).to(device) #need to double check that this works
         self.register_buffer("B_mask", torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)))
-        # self.factor_to_celltype = torch.zeros((self.L_tot, self.n_cell_typesp1)).to(device) # remove .to(device)
+        # self.factor_to_celltype = torch.zeros((self.L_tot, self.n_cell_typesp1)).to(device) 
         self.register_buffer("factor_to_celltype", torch.zeros((self.L_tot, self.n_cell_typesp1)))
 
         self.theta = nn.Parameter(Normal(0., 1.).sample([self.p, self.L_tot]))
@@ -198,11 +196,11 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
         if rho == None:
             self.rho = nn.Parameter(Normal(0., 1.).sample([self.n_cell_typesp1]))
         if kappa != None:
-            # self.kappa = (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(kappa /(1-kappa)))).to(device) # remove .to(device)
+            # self.kappa = (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(kappa /(1-kappa)))).to(device) 
             self.register_buffer("kappa",
                                  (torch.ones((self.n_cell_typesp1)) * torch.tensor(np.log(kappa / (1 - kappa)))))
         if rho != None:
-            # self.rho =  (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(rho /(1-rho)))).to(device) # remove .to(device)
+            # self.rho =  (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(rho /(1-rho)))).to(device) 
             self.register_buffer("rho", (torch.ones((self.n_cell_typesp1)) * torch.tensor(np.log(rho / (1 - rho)))))
 
         # make sure
@@ -237,10 +235,57 @@ class SPECTRA(nn.Module):  ## change here to inherit from lightning module
                 else:
                     self.cell_type_counts.append(0)
         self.cell_type_counts = np.array(self.cell_type_counts)
-        # self.ct_vec =  torch.Tensor(self.cell_type_counts/float(self.n)).to(device) # remove .to(device)
+        # self.ct_vec =  torch.Tensor(self.cell_type_counts/float(self.n)).to(device)
         self.register_buffer("ct_vec", torch.Tensor(self.cell_type_counts / float(self.n)))
 
-    def initialize(self, gene_sets, val):
+    def initialize(self,annotations, word2id, W, init_scores, val = 25):
+        """
+        self.use_cell_types must be True
+        create form of gene_sets:
+        
+        cell_type (inc. global) : set of sets of idxs
+        
+        filter based on L_ct
+        """
+        if self.use_cell_types:
+            if init_scores == None:
+                init_scores = compute_init_scores(annotations, word2id, torch.Tensor(W)) 
+            gs_dict = OrderedDict()
+            for ct in annotations.keys():
+                mval = max(self.L[ct] - 1, 0) 
+                sorted_init_scores = sorted(init_scores[ct].items(), key=lambda x:x[1])
+                sorted_init_scores = sorted_init_scores[-1*mval:]
+                names = set([k[0] for k in sorted_init_scores])  
+                lst_ct = []
+                for key in annotations[ct].keys():
+                    if key in names:
+                        words = annotations[ct][key]
+                        idxs = []
+                        for word in words:
+                            if word in word2id:
+                                idxs.append(word2id[word])
+                        lst_ct.append(idxs)
+                gs_dict[ct] = lst_ct
+            self.set_factor_weights(gene_sets = gs_dict, val = val)
+        else:
+            if init_scores == None:
+                init_scores = compute_init_scores_noct(annotations,word2id,torch.Tensor(W))
+            lst = []
+            mval = max(self.L - 1, 0)
+            sorted_init_scores = sorted(init_scores.items(), key = lambda x:x[1])
+            sorted_init_scores = sorted_init_scores[-1*mval:]
+            names = set([k[0] for k in sorted_init_scores])   
+            for key in annotations.keys():
+                if key in names:
+                    words = annotations[key]
+                    idxs = []
+                    for word in words:
+                        if word in word2id:
+                            idxs.append(word2id[word])
+                    lst.append(idxs)
+            self.set_factor_weights_no_celltypes(gs_list = lst, val = val)
+
+    def set_factor_weights(self, gene_sets, val):
         """
         form of gene_sets:
 
@@ -275,7 +320,7 @@ class SPECTRA_DataModule(pl.LightningDataModule):
         self.dataset= dataset
 
 
-        # batching?? 
+        # batching - check on whether we need to handle batching for a tensor dataset
 
     def setup(self, stage=None):
         # Assign train/val datasets for use in dataloaders
@@ -295,9 +340,6 @@ class SPECTRA_DataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.test, self.batch_size)
-
-
-
 
 
 
@@ -354,11 +396,6 @@ class SPECTRA_LitModel(pl.LightningModule):
         loss = (self.n/batch_size)*self.internal_model.lam*term1 + term2 + term3 #upweight local param terms to be correct on expectation 
         return loss
     
-    def save(self, fp):
-        torch.save(self.internal_model.state_dict(),fp)
-  
-    def load(self,fp,labels = None):
-        self.internal_model.load_state_dict(torch.load(fp))
     
     def return_eta_diag(self):
         return self.B_diag
@@ -616,15 +653,15 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     else:
         init_scores = None
     print("Initializing model...")
-    spectra_model = SPECTRA()
+    spectra_model = SPECTRA(X = X, labels = labels,  L = L, vocab = vocab, gs_dict = gene_set_dictionary, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
+    spectra_model.initialize(gene_set_dictionary, word2id, X, init_scores)
     print("initialized internal model")
     # stuff to do here to make sure data module is there
     spectra_dm = SPECTRA_DataModule()
     print("created dataModule")
-    spectra_lit = SPECTRA_LitModel(spectra_model, **kwargs)
-    # spectra_lit.initialize(gene_set_dictionary, word2id, X, init_scores)
+    spectra_lit = SPECTRA_LitModel(spectra_model)
     print("Beginning training...")
-    trainer = pl.Trainer()
+    trainer = pl.Trainer(max_epochs = 1000)
     trainer.fit(model = spectra_lit, train_dataloaders = spectra_dm, callbacks = [SPECTRA_Callback()]) 
 
     adata.uns["SPECTRA_factors"] = spectra_lit.factors
@@ -642,12 +679,6 @@ def return_markers(factor_matrix, id2word, n_top_vals=100):
             df.iloc[i, j] = id2word[idx_matrix[i, j]]
     return df.values
 
-
-def load_from_pickle(fp, adata, gs_dict, cell_type_key):
-    spectra_internal = SPECTRA()
-    model = SPECTRA_LitModel(spectra_internal)
-    model.load(fp, labels=np.array(adata.obs[cell_type_key]))
-    return (model)
 
 def graph_network(adata, mat, gene_set, thres=0.20, N=50):
     vocab = adata.var_names[adata.var["spectra_vocab"]]
