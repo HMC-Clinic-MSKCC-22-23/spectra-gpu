@@ -177,8 +177,8 @@ class SPECTRA(nn.Module):
         self.n_cell_typesp1 = len(ct_order)
 
         # just need to construct these masks once
-        # self.alpha_mask = torch.zeros((self.n,self.L_tot)).to(device)
-        self.register_buffer("alpha_mask", torch.zeros((self.n, self.L_tot)))
+        self.alpha_mask = torch.zeros((self.n,self.L_tot))
+        # self.register_buffer("alpha_mask", torch.zeros((self.n, self.L_tot)))
         # self.B_mask = torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)).to(device) #need to double check that this works
         self.register_buffer("B_mask", torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)))
         # self.factor_to_celltype = torch.zeros((self.L_tot, self.n_cell_typesp1)).to(device) 
@@ -313,10 +313,10 @@ class SPECTRA_DataModule(pl.LightningDataModule):
         self.alpha_mask = alpha_mask
         self.batch_size = 1000      #for now 
 
-    def prepare_data(self):
-        dataset= TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))  # alpha_mask as feature, X as target ? 
+    #def prepare_data(self):
+        ##dataset= TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))  # alpha_mask as feature, X as target ? 
         # loader_tr = DataLoader(dataset,batch_size=self.batch_size, shuffle=False, num_workers=4) #added this in case we need iter things, incomplete 
-        self.dataset= dataset
+        # self.dataset= dataset
 
 
         # batching - check on whether we need to handle batching for a tensor dataset
@@ -324,12 +324,13 @@ class SPECTRA_DataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
-            self.train = Dataset(self.dataset, train=True, transform=True) # not sure about transform, train file name
-            self.validate = Dataset(self.dataset) # validation file name
+            dataset = TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))
+            self.train = dataset # Dataset(dataset, train=True, transform=True) # not sure about transform, train file name
+            self.validate = dataset # Dataset(dataset) # validation file name
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.test = Dataset(self.dataset)    # test file name
+            self.test = TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))    # test file name
 
     def train_dataloader(self):
         return DataLoader(self.train, self.batch_size)
@@ -343,6 +344,24 @@ class SPECTRA_DataModule(pl.LightningDataModule):
 
 
 class SPECTRA_LitModel(pl.LightningModule):
+    """
+    Parameters: 
+    internal_model : SPECTRA object
+
+    Attributes:
+
+    internal_model : the model the trainer trains on
+
+    cell_scores
+    factors
+    B_diag
+    eta_matrices
+    gene_scalings
+    rho
+    kappa
+
+
+    """
     def __init__(self, internal_model):
         super().__init__()
         self.internal_model = internal_model
@@ -656,7 +675,7 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     spectra_model.initialize(gene_set_dictionary, word2id, X, init_scores)
     print("initialized internal model")
     # stuff to do here to make sure data module is there
-    spectra_dm = SPECTRA_DataModule()
+    spectra_dm = SPECTRA_DataModule(X, spectra_model.alpha_mask)
     print("created dataModule")
     spectra_lit = SPECTRA_LitModel(spectra_model)
     print("Beginning training...")
