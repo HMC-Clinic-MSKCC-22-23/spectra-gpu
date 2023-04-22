@@ -46,6 +46,7 @@ class SPECTRA(nn.Module):
             > Must match cell type labels provided during training
             > Recommended practice is to assign at minimum 2 factors per cell type
             > Note that L contains the number of factors that describe the graph.
+        device : the device on which to instantiate the tensors, given from the wrapper SPECTRA Lightning Module object
         adj_matrix :  dict or OrderedDict
             ``a dictionary of adjacency matrices, one for every cell type + a "global"
             {
@@ -115,8 +116,6 @@ class SPECTRA(nn.Module):
         self.delta = delta
         self.lam = lam
         self.L = L
-        #self.kappa = kappa
-        #self.rho = rho
         self.use_cell_types = use_cell_types
         self.device = device
 
@@ -310,32 +309,36 @@ class SPECTRA(nn.Module):
 
 
 class SPECTRA_DataModule(pl.LightningDataModule):
-    def __init__(self, X, alpha_mask, device):    #assuming paramters are computed and accessible
+    """
+        defines the DataModule to be used with the lightning trainer
+
+        Parameters:
+            X : np.ndarray or torch.Tensor
+            the ``(n, p)`` -shaped matrix containing logged expression count data. Used for initialization of self.n and self.p but not stored as an attribute
+
+            alpha_mask : alpha as defined in SPECTRA but the mask also computed and used on the object
+
+            device : the device currently in use by the Lightning Module
+
+            Ideally would also include batch size
+    """
+    def __init__(self, X, alpha_mask, device):    
         super().__init__()
         self.X = X
         self.alpha_mask = alpha_mask
-        self.batch_size = 1000      #for now 
+        self.batch_size = 1000
         self.device = device
-        print(self.device)
-
-    #def prepare_data(self):
-        ##dataset= TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))  # alpha_mask as feature, X as target ? 
-        # loader_tr = DataLoader(dataset,batch_size=self.batch_size, shuffle=False, num_workers=4) #added this in case we need iter things, incomplete 
-        # self.dataset= dataset
-
-
-        # batching - check on whether we need to handle batching for a tensor dataset
 
     def setup(self, stage=None):
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
             dataset = TensorDataset(torch.Tensor(self.alpha_mask).to(self.device), torch.Tensor(self.X).to(self.device))
-            self.train = dataset # Dataset(dataset, train=True, transform=True) # not sure about transform, train file name
-            self.validate = dataset # Dataset(dataset) # validation file name
+            self.train = dataset 
+            self.validate = dataset 
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.test = TensorDataset(torch.Tensor(self.alpha_mask).to(self.device), torch.Tensor(self.X).to(self.device))    # test file name
+            self.test = TensorDataset(torch.Tensor(self.alpha_mask).to(self.device), torch.Tensor(self.X).to(self.device))  
 
     def train_dataloader(self):
         return DataLoader(self.train, self.batch_size)
@@ -350,8 +353,46 @@ class SPECTRA_DataModule(pl.LightningDataModule):
 
 class SPECTRA_LitModel(pl.LightningModule):
     """
-    Parameters: 
-    internal_model : SPECTRA object
+    Parameters
+        ----------
+        X : np.ndarray or torch.Tensor
+            the ``(n, p)`` -shaped matrix containing logged expression count data. Used for initialization of self.n and self.p but not stored as an attribute
+        labels : np.ndarray or NoneType
+            the ``(n, )`` -shaped array containing cell type labels. If use_cell_types == False, then should be set to None
+
+        L : dict or OrderedDict [if use_cell_types == False, then int]
+            ``number of cell types + 1``-shaped dictionary. Must have "global" as a key, indicating the number of global factors
+            {
+                "global": 15,
+                "CD8": 5
+                ...
+            }
+            > Format matches output of K_est.py to estimate the number of
+            > Must match cell type labels provided during training
+            > Recommended practice is to assign at minimum 2 factors per cell type
+            > Note that L contains the number of factors that describe the graph.
+        adj_matrix :  dict or OrderedDict
+            ``a dictionary of adjacency matrices, one for every cell type + a "global"
+            {
+                "global": ``(p, p)``-shaped binary np.ndarray
+                "CD8": ...
+            }
+        weights : dict or OrderedDict or NoneType [if use_cell_types == False, then ``(p, p)``-shaped array]
+            the ``(p, p)``-shaped set of edge weights per . If weight[i,j] is non-zero when adj_matrix[i,j] = 0
+            this weight is ignored.
+
+            if weights == None, no weights are used
+        lam : float
+            lambda parameter of the model, which controls the relative influence of the graph vs expression loss functions. This term multiplies the expression loss, so smaller values of lambda upweight the prior information
+        delta : float
+            delta parameter of the model, which controls a lower bound for gene scaling factors. If delta is small then the maximum ratio between gene scaling factors is larger and lowly expressed genes can be put on the same scale as highly expressed genes.
+        kappa : float or NoneType
+            kappa controls the background rate of edges in the graph. if kappa is a float, kappa is fixed to the given float value. If kappa == None, then kappa is a parameter that is estimated from the data.
+        rho : float or NoneType
+            rho controls the bakcground rate of non-edges in the graph. if rho is a float, rho is fixed to the given float value. If rho == None, then rho is a parameter that is estimated from the data.
+        use_cell_types: bool
+            use_cell_types is a Boolean variable that determines whether cell type labels are used to fit the model. If False, then parameters are initialized as nn.Parameter rather than as nn.ParameterDict with cell type keys that index nn.Parameter values
+
 
     Attributes:
 
@@ -365,22 +406,33 @@ class SPECTRA_LitModel(pl.LightningModule):
     rho
     kappa
 
+    Methods:
+
+    training_step : the lighting hook to define what happens for each epoch in each batch of the data
+
+    backward : hook for the backward step of the model, so that it retains the graph as it trains
+
+    configure_optimizers : lightning hook to configure the optimizer and the lr_scheduler
+
+    compute_loss : custom hook for computing the loss at each training step
+
+    model.return_selection()
+    model.return_eta_diag()
+    model.return_cell_scores()
+    model.return_factors() 
+    model.return_eta()
+    model.return_rho() 
+    model.return_kappa()
+    model.return_gene_scalings()
+    model.return_graph(ct = "global") : 
+    model.matching(markers, gene_names_dict, threshold = 0.4):
+
 
     """
     def __init__(self,X, labels, L, vocab = None, gs_dict = None, use_weights = False, adj_matrix = None, weights = None, lam = 0.1, delta=0.1,kappa = None, rho = None, use_cell_types = True):
         super().__init__()
-        #self.internal_model = internal_model
-
-        #self.cell_scores = None
-        #self.factors = None
-        #self.B_diag = None
-        #self.eta_matrices = None 
-        #self.gene_scalings = None 
-        #self.rho = None 
-        #self.kappa = None 
         
         self.internal_model = SPECTRA(X = X, labels = labels,  device = self.device, L = L, vocab = vocab, gs_dict = gs_dict, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
-        # self.internal_model.to(self.device)
         
         self.register_buffer("cell_scores", None)
         self.register_buffer("factors", None)
@@ -390,7 +442,8 @@ class SPECTRA_LitModel(pl.LightningModule):
         self.register_buffer("rho", None)
         self.register_buffer("kappa", None)
 
-
+    def on_fit_start(self):
+        self.internal_model.to(self.device)
 
 
     def training_step(self, batch, batch_idx):
@@ -518,6 +571,12 @@ class SPECTRA_LitModel(pl.LightningModule):
 
 
 class SPECTRA_Callback(Callback):
+    """
+    defines a custom hook to store parameters cell_scores, factors, gene_scalings, rho, and kappa
+    once the training step is complete
+
+    takes in the trainer object, and the Lightning module object (SPECTRA_LitModel)
+    """
     def on_train_end(self, trainer, pl_module):
 
         model = pl_module.internal_model
@@ -695,16 +754,14 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     else:
         init_scores = None
     print("Initializing model...")
-    #spectra_model = SPECTRA(X = X, labels = labels,  L = L, vocab = vocab, gs_dict = gene_set_dictionary, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
-    print("initialized internal model")
-    # stuff to do here to make sure data module is there
-    print("created dataModule")
     spectra_lit = SPECTRA_LitModel(X = X, labels = labels,  L = L, vocab = vocab, gs_dict = gene_set_dictionary, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
     
     spectra_lit.internal_model.initialize(gene_set_dictionary, word2id, X, init_scores)
     spectra_lit.internal_model.to(spectra_lit.device)
+    print("initialized internal model")
     
     spectra_dm = SPECTRA_DataModule(spectra_lit.internal_model.alpha * spectra_lit.internal_model.alpha_mask, X, spectra_lit.device)
+    print("created dataModule")
     print("Beginning training...")
     trainer = pl.Trainer(max_epochs = 1000, callbacks = [SPECTRA_Callback()])
     trainer.fit(model = spectra_lit, train_dataloaders = spectra_dm) 
