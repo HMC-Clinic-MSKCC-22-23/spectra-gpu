@@ -107,7 +107,7 @@ class SPECTRA(nn.Module):
     """
 
     # possible that the non-parameter tensors that get initialized here need be turned into buffers
-    def __init__(self,X, labels,  L, vocab = None, gs_dict = None, use_weights = False, adj_matrix = None, weights = None, lam = 0.1, delta=0.1,kappa = None, rho = None, use_cell_types = True):
+    def __init__(self,X, labels, device, L, vocab = None, gs_dict = None, use_weights = False, adj_matrix = None, weights = None, lam = 0.1, delta=0.1,kappa = None, rho = None, use_cell_types = True):
         super(SPECTRA, self).__init__()
 
 
@@ -118,6 +118,7 @@ class SPECTRA(nn.Module):
         #self.kappa = kappa
         #self.rho = rho
         self.use_cell_types = use_cell_types
+        self.device = device
 
         # if gs_dict is provided instead of adj_matrix, convert to adj_matrix, overrides adj_matrix and weights
         if gs_dict is not None:
@@ -157,9 +158,9 @@ class SPECTRA(nn.Module):
             else:
                 lst_adj_matrix.append(torch.zeros((self.p, self.p)))
                 lst_adj_matrix1m.append(torch.zeros((self.p, self.p)))
-        # self.adj_matrix = torch.stack(lst_adj_matrix).to(device) #(cell_types + 1, p, p )
+        #self.adj_matrix = torch.stack(lst_adj_matrix).to(self.device) #(cell_types + 1, p, p )
         self.register_buffer("adj_matrix", torch.stack(lst_adj_matrix))
-        # self.adj_matrix_1m = torch.stack(lst_adj_matrix1m).to(device) #(cell_types + 1, p, p)
+        #self.adj_matrix_1m = torch.stack(lst_adj_matrix1m).to(self.device) #(cell_types + 1, p, p)
         self.register_buffer("adj_matrix_1m", torch.stack(lst_adj_matrix1m))
 
         if weights:
@@ -171,7 +172,7 @@ class SPECTRA(nn.Module):
                     lst_weights.append(torch.zeros((self.p, self.p)))
         else:
             self.weights = self.adj_matrix
-            # self.weights = torch.stack(lst_weights).to(device) 
+        # self.weights = torch.stack(lst_weights) #.to(device) 
         self.register_buffer("weights", torch.stack(lst_weights))
         self.ct_order = ct_order
         self.L_tot = L_tot
@@ -179,11 +180,11 @@ class SPECTRA(nn.Module):
         self.n_cell_typesp1 = len(ct_order)
 
         # just need to construct these masks once
-        self.alpha_mask = torch.zeros((self.n,self.L_tot))
-        # self.register_buffer("alpha_mask", torch.zeros((self.n, self.L_tot)))
-        # self.B_mask = torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)).to(device) #need to double check that this works
+        #self.alpha_mask = torch.zeros((self.n,self.L_tot)).to(self.device)
+        self.register_buffer("alpha_mask", torch.zeros((self.n, self.L_tot))) 
+        #self.B_mask = torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)).to(self.device) #need to double check that this works
         self.register_buffer("B_mask", torch.zeros((self.n_cell_typesp1, self.L_tot, self.L_tot)))
-        # self.factor_to_celltype = torch.zeros((self.L_tot, self.n_cell_typesp1)).to(device) 
+        #self.factor_to_celltype = torch.zeros((self.L_tot, self.n_cell_typesp1)).to(self.device) 
         self.register_buffer("factor_to_celltype", torch.zeros((self.L_tot, self.n_cell_typesp1)))
 
         self.theta = nn.Parameter(Normal(0., 1.).sample([self.p, self.L_tot]))
@@ -197,11 +198,11 @@ class SPECTRA(nn.Module):
         if rho == None:
             self.rho = nn.Parameter(Normal(0., 1.).sample([self.n_cell_typesp1]))
         if kappa != None:
-            # self.kappa = (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(kappa /(1-kappa)))).to(device) 
+            #self.kappa = (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(kappa /(1-kappa)))).to(self.device) 
             self.register_buffer("kappa",
                                  (torch.ones((self.n_cell_typesp1)) * torch.tensor(np.log(kappa / (1 - kappa)))))
         if rho != None:
-            # self.rho =  (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(rho /(1-rho)))).to(device) 
+            #self.rho =  (torch.ones((self.n_cell_typesp1))*torch.tensor(np.log(rho /(1-rho)))).to(self.device) 
             self.register_buffer("rho", (torch.ones((self.n_cell_typesp1)) * torch.tensor(np.log(rho / (1 - rho)))))
 
         # make sure
@@ -236,7 +237,7 @@ class SPECTRA(nn.Module):
                 else:
                     self.cell_type_counts.append(0)
         self.cell_type_counts = np.array(self.cell_type_counts)
-        # self.ct_vec =  torch.Tensor(self.cell_type_counts/float(self.n)).to(device)
+        # self.ct_vec =  torch.Tensor(self.cell_type_counts/float(self.n)).to(self.device)
         self.register_buffer("ct_vec", torch.Tensor(self.cell_type_counts / float(self.n)))
 
     def initialize(self,annotations, word2id, W, init_scores, val = 25):
@@ -309,11 +310,13 @@ class SPECTRA(nn.Module):
 
 
 class SPECTRA_DataModule(pl.LightningDataModule):
-    def __init__(self, X, alpha_mask):    #assuming paramters are computed and accessible
+    def __init__(self, X, alpha_mask, device):    #assuming paramters are computed and accessible
         super().__init__()
         self.X = X
         self.alpha_mask = alpha_mask
         self.batch_size = 1000      #for now 
+        self.device = device
+        print(self.device)
 
     #def prepare_data(self):
         ##dataset= TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))  # alpha_mask as feature, X as target ? 
@@ -326,13 +329,13 @@ class SPECTRA_DataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
-            dataset = TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))
+            dataset = TensorDataset(torch.Tensor(self.alpha_mask).to(self.device), torch.Tensor(self.X).to(self.device))
             self.train = dataset # Dataset(dataset, train=True, transform=True) # not sure about transform, train file name
             self.validate = dataset # Dataset(dataset) # validation file name
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.test = TensorDataset(torch.Tensor(self.alpha_mask), torch.Tensor(self.X))    # test file name
+            self.test = TensorDataset(torch.Tensor(self.alpha_mask).to(self.device), torch.Tensor(self.X).to(self.device))    # test file name
 
     def train_dataloader(self):
         return DataLoader(self.train, self.batch_size)
@@ -364,24 +367,39 @@ class SPECTRA_LitModel(pl.LightningModule):
 
 
     """
-    def __init__(self, internal_model):
+    def __init__(self,X, labels, L, vocab = None, gs_dict = None, use_weights = False, adj_matrix = None, weights = None, lam = 0.1, delta=0.1,kappa = None, rho = None, use_cell_types = True):
         super().__init__()
-        self.internal_model = internal_model
+        #self.internal_model = internal_model
 
-        self.cell_scores = None
-        self.factors = None
-        self.B_diag = None
-        self.eta_matrices = None 
-        self.gene_scalings = None 
-        self.rho = None 
-        self.kappa = None 
+        #self.cell_scores = None
+        #self.factors = None
+        #self.B_diag = None
+        #self.eta_matrices = None 
+        #self.gene_scalings = None 
+        #self.rho = None 
+        #self.kappa = None 
+        
+        self.internal_model = SPECTRA(X = X, labels = labels,  device = self.device, L = L, vocab = vocab, gs_dict = gs_dict, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
+        # self.internal_model.to(self.device)
+        
+        self.register_buffer("cell_scores", None)
+        self.register_buffer("factors", None)
+        self.register_buffer("B_diag", None)
+        self.register_buffer("eta_matrices", None)
+        self.register_buffer("gene_scalings", None)
+        self.register_buffer("rho", None)
+        self.register_buffer("kappa", None)
+
+
+
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
+
         X_b, alpha_b = batch
-        loss = self.compute_loss(X_b, alpha_b)
+        loss = self.compute_loss(X_b, alpha_b).to(self.device)
         return loss
-    
+
 
     def backward(self, loss):
         loss.backward(retain_graph=True)
@@ -394,28 +412,29 @@ class SPECTRA_LitModel(pl.LightningModule):
     def compute_loss(self, X, alpha):
         assert(self.internal_model.use_cell_types) #if this is False, fail because model has not been initialized to use cell types
         batch_size = 1000 # can be changed here, like num_epochs
-
+        
         # create the weird softmax theta 
         theta = torch.cat([temp.softmax(dim = 1) for temp in torch.split(self.internal_model.theta, split_size_or_sections = self.internal_model.L_list, dim = 1)], dim = 1)
         #initialize loss and fetch global parameters
         eta = self.internal_model.eta.exp()/(1.0 + (self.internal_model.eta).exp())
         eta = 0.5*(eta + eta.T)
-        gene_scaling = self.internal_model.gene_scalings.exp()/(1.0 + self.internal_model.gene_scalings.exp()) #ctp1 x p
-        kappa = self.internal_model.kappa.exp()/(1 + self.internal_model.kappa.exp()) #ctp1
-        rho = self.internal_model.rho.exp()/(1 + self.internal_model.rho.exp()) #ctp1
+        gene_scaling = self.internal_model.gene_scalings.exp()/(1.0 + self.internal_model.gene_scalings.exp()) #ctp1 x p)
+        kappa = self.internal_model.kappa.to(self.device).exp()/(1 + self.internal_model.kappa.to(self.device).exp()) #ctp1
+        rho = self.internal_model.rho.to(self.device).exp()/(1 + self.internal_model.rho.to(self.device).exp()) #ctp1
         #handle theta x gene_scalings 
         
-        gene_scaling_ = contract('ij,ki->jk',gene_scaling, self.internal_model.factor_to_celltype) #p x L_tot
+        gene_scaling_ = contract('ij,ki->jk',gene_scaling, self.internal_model.factor_to_celltype.to(self.device)) #p x L_tot
         theta_ = theta * (gene_scaling_ + self.internal_model.delta)  #p x L_tot
         alpha_ = torch.exp(alpha) # should get the same thing as original gpu implementation, which is batch x L_tot
         recon = contract('ik,jk->ij' , alpha_, theta_)
         term1 = -1.0*(torch.xlogy(X,recon) - recon).sum()
         
-        eta_ = eta[None,:,:]*self.internal_model.B_mask #ctp1 x L_tot x L_tot 
+        eta_ = eta[None,:,:]*self.internal_model.B_mask.to(self.device) #ctp1 x L_tot x L_tot 
         
         mat = contract('il,clj,kj->cik',theta_,eta_,theta_) #ctp1 x p x p
-        term2 = -1.0*((torch.xlogy(self.internal_model.adj_matrix*self.internal_model.weights, (1.0 - rho.reshape(-1,1,1))*(1.0 -kappa.reshape(-1,1,1))*mat + (1.0 - rho.reshape(-1,1,1))*kappa.reshape(-1,1,1)))*self.internal_model.ct_vec.reshape(-1,1,1)).sum()
-        term3 = -1.0*((torch.xlogy(self.internal_model.adj_matrix_1m,(1.0 -kappa.reshape(-1,1,1))*(1.0 - rho.reshape(-1,1,1))*(1.0 - mat) + rho.reshape(-1,1,1)))*self.internal_model.ct_vec.reshape(-1,1,1)).sum()
+        
+        term2 = -1.0*((torch.xlogy(self.internal_model.adj_matrix.to(self.device)*self.internal_model.weights.to(self.device), (1.0 - rho.reshape(-1,1,1))*(1.0 -kappa.reshape(-1,1,1))*mat + (1.0 - rho.reshape(-1,1,1))*kappa.reshape(-1,1,1)))*self.internal_model.ct_vec.to(self.device).reshape(-1,1,1)).sum()
+        term3 = -1.0*((torch.xlogy(self.internal_model.adj_matrix_1m.to(self.device),(1.0 -kappa.reshape(-1,1,1))*(1.0 - rho.reshape(-1,1,1))*(1.0 - mat) + rho.reshape(-1,1,1)))*self.internal_model.ct_vec.to(self.device).reshape(-1,1,1)).sum()
         loss = (self.internal_model.n/batch_size)*self.internal_model.lam*term1 + term2 + term3 #upweight local param terms to be correct on expectation 
         return loss
     
@@ -676,13 +695,16 @@ def est_spectra(adata, gene_set_dictionary, L=None, use_highly_variable=True, ce
     else:
         init_scores = None
     print("Initializing model...")
-    spectra_model = SPECTRA(X = X, labels = labels,  L = L, vocab = vocab, gs_dict = gene_set_dictionary, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
-    spectra_model.initialize(gene_set_dictionary, word2id, X, init_scores)
+    #spectra_model = SPECTRA(X = X, labels = labels,  L = L, vocab = vocab, gs_dict = gene_set_dictionary, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
     print("initialized internal model")
     # stuff to do here to make sure data module is there
-    spectra_dm = SPECTRA_DataModule(spectra_model.alpha * spectra_model.alpha_mask, X)
     print("created dataModule")
-    spectra_lit = SPECTRA_LitModel(spectra_model)
+    spectra_lit = SPECTRA_LitModel(X = X, labels = labels,  L = L, vocab = vocab, gs_dict = gene_set_dictionary, use_weights = use_weights, lam = lam, delta=delta,kappa = kappa, rho = rho, use_cell_types = use_cell_types)
+    
+    spectra_lit.internal_model.initialize(gene_set_dictionary, word2id, X, init_scores)
+    spectra_lit.internal_model.to(spectra_lit.device)
+    
+    spectra_dm = SPECTRA_DataModule(spectra_lit.internal_model.alpha * spectra_lit.internal_model.alpha_mask, X, spectra_lit.device)
     print("Beginning training...")
     trainer = pl.Trainer(max_epochs = 1000, callbacks = [SPECTRA_Callback()])
     trainer.fit(model = spectra_lit, train_dataloaders = spectra_dm) 
